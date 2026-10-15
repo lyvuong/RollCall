@@ -447,9 +447,12 @@ img, svg, video { max-width: 100%; }
   .appbar { gap: 8px; }
 }
 
-/* Event card tint by time: past = neutral, today = warm, future = cool (kept faint so text stays legible) */
-.card.event.past { background: color-mix(in srgb, var(--surface) 90%, #8f95a8); }
-.card.event.today { background: color-mix(in srgb, var(--surface) 86%, var(--mint-bg)); }
-.card.event.future { background: color-mix(in srgb, var(--surface) 88%, var(--sky-bg)); }
-:root[data-theme='dark'] .card.event.past { background: color-mix(in srgb, var(--surface) 92%, #8f95a8); }
-.card.event .pill { background: color-mix(in srgb, var(--surface) 55%, var(--bg-2)); }
+/* Event card tint by time: past = gray, today = amber, future = sky (text colors untouched) */
+.card.event.past { background: #e4e6ee; }
+.card.event.today { background: #fff0b8; }
+.card.event.future { background: #d4eaff; }
+:root[data-theme='dark'] .card.event.past { background: #2b2d3a; }
+:root[data-theme='dark'] .card.event.today { background: #4a3d10; }
+:root[data-theme='dark'] .card.event.future { background: #153a5c; }
+.card.event .pill { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .1); }
+:root[data-theme='dark'] .card.event .pill { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14); }
