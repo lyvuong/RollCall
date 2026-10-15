@@ -44,6 +44,7 @@ export function importView(root, _ctx) {
     </section>
     <section class="card">
       <h2>${icon('file')} 1. Choose a file</h2>
+      <p class="muted">Pick your <b>AMS export</b> CSV (one row per attendee) or a RollCall template. It is detected automatically, on either tab. Nothing is saved until you press Import in step 2.</p>
       <div class="dropzone">
         <input type="file" id="file" accept=".csv,.tsv,.txt,text/csv" aria-label="CSV file" />
         <span class="muted">or paste CSV text</span>
