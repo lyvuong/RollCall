@@ -53,7 +53,7 @@ export function homeView(root, _ctx) {
   root.innerHTML = `
     <section class="bar">
       <h1>${icon('calendar', 'lg')} Events</h1>
-      <a class="btn primary fab" href="#/event/new">${icon('plus')} New event</a>
+      <a class="btn primary fab" href="#/event/new" aria-label="New event" title="New event">${icon('plus')}<span class="wide">New event</span></a>
     </section>
     <section class="card filter" aria-label="Date range">
       <div class="chips" id="chips"></div>
