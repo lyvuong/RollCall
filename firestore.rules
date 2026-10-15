@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isMember() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/members/$(request.auth.uid));
+    }
+    function isAdmin() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Admin flag: a user may only check their own doc; set manually in console.
+    match /admins/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // Invitation codes: doc ID is the code. Must know the code to get it.
+    match /invites/{code} {
+      allow get: if signedIn();
+      allow list, create, update, delete: if isAdmin();
+    }
+
+    // Membership is granted by redeeming a valid, unexpired code.
+    match /members/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['code', 'email', 'redeemedAt'])
+        && request.resource.data.code is string
+        && get(/databases/$(database)/documents/invites/$(request.resource.data.code))
+             .data.expiresAt > request.time;
+      allow delete: if isAdmin();
+      allow update: if false;
+    }
+
+    match /locations/{id} {
+      allow read: if isMember();
+      allow write: if isMember();
+    }
+
+    match /people/{id} {
+      allow read: if isMember();
+      allow create, update: if isMember()
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.type in ['member', 'volunteer'];
+      allow delete: if isMember();
+    }
+
+    match /events/{id} {
+      allow read: if isMember();
+      allow create, update: if isMember()
+        && request.resource.data.name is string
+        && request.resource.data.format in ['virtual', 'in-person', 'both']
+        && request.resource.data.endTime > request.resource.data.startTime;
+      allow delete: if isMember();
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "rollcall",
+  "compatibility_date": "2026-10-01",
+  // Static PWA served by Workers; unknown paths fall back to index.html (SPA).
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}

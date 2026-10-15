@@ -1,0 +1,27 @@
+{
+  "name": "rollcall",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:rules": "firebase emulators:exec --only firestore \"vitest run --config vitest.rules.config.js\"",
+    "emulators": "firebase emulators:start --only auth,firestore",
+    "deploy": "vite build && wrangler deploy",
+    "cf:preview": "vite build && wrangler dev"
+  },
+  "dependencies": {
+    "firebase": "^10.14.1"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "firebase-tools": "^13.29.1",
+    "vite": "^5.4.11",
+    "vite-plugin-pwa": "^0.20.5",
+    "vitest": "^2.1.8",
+    "wrangler": "^4.151.0"
+  }
+}
