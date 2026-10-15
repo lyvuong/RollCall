@@ -69,7 +69,7 @@ export function participantsView(root, _ctx, eventId) {
             const kind = personKind(a.type);
             const gone = removed.has(a.id);
             const nm = esc(a.name);
-            return `<span class="pn ${kind}${gone ? ' gone' : ''}"><span class="pname" title="${KIND[kind].label} · ${vol ? 'Volunteer' : 'Participant'}">${vol ? icon('heart') : ''}${nm}</span><button type="button" class="mb role${vol ? ' on' : ''}" data-role="${esc(a.id)}" aria-label="Switch ${nm} between participant and volunteer" title="${vol ? 'Volunteer: tap for Participant' : 'Participant: tap for Volunteer'}">${icon('swap')}</button><button type="button" class="mb del${gone ? ' on' : ''}" data-del="${esc(a.id)}" aria-label="${gone ? 'Keep' : 'Remove'} ${nm}" title="${gone ? 'Undo remove' : 'Remove'}">${icon('x')}</button>${i < cur.length - 1 ? '<span class="sep">,</span>' : ''}</span>`;
+            return `<span class="pn ${kind}${gone ? ' gone' : ''}"><button type="button" class="pname" data-role="${esc(a.id)}" aria-pressed="${vol}" title="${KIND[kind].label} · ${vol ? 'Volunteer (tap for Participant)' : 'Participant (tap for Volunteer)'}">${vol ? icon('heart') : ''}${nm}</button><button type="button" class="mb del${gone ? ' on' : ''}" data-del="${esc(a.id)}" aria-label="${gone ? 'Keep' : 'Remove'} ${nm}" title="${gone ? 'Undo remove' : 'Remove'}">${icon('minus')}</button>${i < cur.length - 1 ? '<span class="sep">,</span>' : ''}</span>`;
           })
           .join(' ')
       : `<span class="muted">No participants yet. Search above to add people.</span>`;

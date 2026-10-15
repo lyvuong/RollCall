@@ -341,14 +341,13 @@ textarea.input { resize: vertical; }
 .inl { line-height: 2.2; margin-top: 6px; }
 .tiny { font-size: .78rem; margin: 2px 0 0; }
 .pn { display: inline; white-space: normal; }
-.pname { display: inline; font-weight: 500; }
+.pname { display: inline; border: 0; background: none; font: inherit; font-weight: 500; padding: 4px 0 4px 2px; cursor: pointer; }
 .pn.osg .pname { color: var(--sky-ink); }
 .pn.community .pname { color: var(--mint-ink); }
 .pn.gone .pname { text-decoration: line-through; opacity: .6; }
 .pname .i { width: .85em; height: .85em; vertical-align: -1px; margin-right: 3px; color: var(--rose-ink); }
-.mb { display: inline-flex; vertical-align: middle; align-items: center; justify-content: center; width: 32px; height: 32px; margin-left: 3px; border: 0; border-radius: 10px; background: var(--primary-tint); color: var(--primary-ink); cursor: pointer; padding: 0; }
+.mb { display: inline-flex; vertical-align: middle; align-items: center; justify-content: center; width: 32px; height: 32px; margin-left: 3px; border: 0; border-radius: 999px; background: var(--primary-tint); color: var(--primary-ink); cursor: pointer; padding: 0; }
 .mb .i { width: 16px; height: 16px; }
-.mb.role.on { background: var(--rose-bg); color: var(--rose-ink); }
 .mb.del { background: var(--surface-2, var(--primary-tint)); color: var(--muted); }
 .mb.del.on { background: var(--rose-bg); color: var(--rose-ink); }
 #done { margin-top: 12px; width: 100%; }
