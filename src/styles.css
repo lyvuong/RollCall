@@ -391,3 +391,31 @@ textarea.input { resize: vertical; }
 }
 
 .old { color: var(--muted); text-decoration: line-through; }
+
+/* Never exceed the viewport width */
+html, body { max-width: 100%; overflow-x: hidden; }
+.grid3, .grid2 { grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); }
+.grid3 { --cols: 3; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); }
+.grid2 { --cols: 2; }
+.field, .grid3 > *, .grid2 > *, .row > *, .stats > * { min-width: 0; }
+.input { min-width: 0; max-width: 100%; }
+input[type='date'].input, input[type='time'].input { -webkit-appearance: none; appearance: none; min-width: 0; width: 100%; }
+@media (max-width: 520px) {
+  .grid3 { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .grid3 .field:first-child { grid-column: auto; }
+  .grid3 .input { padding-left: 6px; padding-right: 6px; font-size: .9rem; }
+}
+@media (max-width: 520px) {
+  .grid3 .input { font-size: .85rem; padding-left: 4px; padding-right: 4px; text-align: center; }
+  .grid3 input::-webkit-calendar-picker-indicator { display: none; }
+  .grid3 input::-webkit-date-and-time-value { text-align: center; margin: 0; }
+}
+.filter .dates { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.bar { flex-wrap: wrap; }
+.bar h1 { min-width: 0; overflow-wrap: anywhere; }
+.card, section, form, li, p, h1, h2 { min-width: 0; overflow-wrap: anywhere; }
+img, svg, video { max-width: 100%; }
+@media (max-width: 520px) {
+  .filter .dates .input { font-size: .85rem; padding-left: 6px; padding-right: 6px; }
+  .filter .dates input::-webkit-calendar-picker-indicator { display: none; }
+}
