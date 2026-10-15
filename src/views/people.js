@@ -129,14 +129,17 @@ export function participantsView(root, _ctx, eventId) {
       setRole(eventId, t.dataset.role, cur === 'volunteer' ? 'participant' : 'volunteer').catch(fail);
     } else if (t.dataset.add) {
       const p = people.find((x) => x.id === t.dataset.add);
-      if (p) setAttendance(eventId, p, true).catch(fail);
+      if (p) {
+        setAttendance(eventId, p, true).catch(fail);
+        toast(`${p.name} added as participant · ${Object.keys(att).length + 1} total`);
+      }
     } else if (t.dataset.new) {
       const name = q.trim().replace(/\s+/g, ' ');
       if (!name) return;
       const created = addPerson(name, t.dataset.new);
       created.done.catch(() => toast('Could not save person.'));
       setAttendance(eventId, created.person, true).catch(fail);
-      toast(`${name} added`);
+      toast(`${name} added as new ${t.dataset.new === 'osg' ? 'OSG' : 'community'} participant · ${Object.keys(att).length + 1} total`);
       q = '';
       $('#q', root).value = '';
     }
