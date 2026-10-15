@@ -446,3 +446,10 @@ img, svg, video { max-width: 100%; }
   .brand { font-size: .95rem; gap: 8px; }
   .appbar { gap: 8px; }
 }
+
+/* Event card tint by time: past = neutral, today = warm, future = cool (kept faint so text stays legible) */
+.card.event.past { background: color-mix(in srgb, var(--surface) 90%, #8f95a8); }
+.card.event.today { background: color-mix(in srgb, var(--surface) 86%, var(--mint-bg)); }
+.card.event.future { background: color-mix(in srgb, var(--surface) 88%, var(--sky-bg)); }
+:root[data-theme='dark'] .card.event.past { background: color-mix(in srgb, var(--surface) 92%, #8f95a8); }
+.card.event .pill { background: color-mix(in srgb, var(--surface) 55%, var(--bg-2)); }
