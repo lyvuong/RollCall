@@ -10,6 +10,8 @@ import {
   formatHours,
   eventHours,
   countRoles,
+  personKind,
+  roleOf,
   totalVolunteerHours,
   needsVolunteers,
 } from '../lib/time.js';
@@ -37,6 +39,7 @@ const PRESETS = [
 
 // Remembered across navigation within the session.
 let range = null;
+const open = new Set(); // expanded event cards
 let fixOnly = false; // only events that still need volunteers identified, across all dates
 const ALL = { from: '2000-01-01', to: '2099-12-31' };
 const defaultRange = () => PRESETS[0].get(ymd());
@@ -118,7 +121,7 @@ export function homeView(root, _ctx) {
     const loc = e.locationId ? locations[e.locationId] : '';
     const f = FORMAT[e.format] || FORMAT['in-person'];
     return `
-      <article class="card event ${esc(e.format)}${needsVolunteers(e) ? ' flag' : ''}" data-href="#/event/${esc(e.id)}">
+      <article class="card event ${esc(e.format)}${needsVolunteers(e) ? ' flag' : ''}" data-id="${esc(e.id)}" aria-expanded="${open.has(e.id)}">
         <div class="row">
           <span class="ttl">
             <a class="ibadge edit" href="#/event/${esc(e.id)}" aria-label="Edit ${esc(e.name)}" title="Edit event">${icon('edit')}</a>
@@ -135,13 +138,22 @@ export function homeView(root, _ctx) {
           <span class="pill mem" title="Participants">${icon('users')}<b>${participants}</b><span class="wide">participant${participants === 1 ? '' : 's'}</span></span>
           <span class="pill hrs" title="Total volunteer hours">${icon('hourglass')}<b>${formatHours(totalVolunteerHours(e))}</b> hrs</span>
           ${needsVolunteers(e) ? `<span class="pill warn" title="Recorded hours, but no volunteers identified">${icon('alert')}<span class="wide">Assign volunteers</span><span class="narrow">Fix</span></span>` : ''}
+          ${
+            e.date <= ymd()
+              ? `<a class="ibadge people" href="#/event/${esc(e.id)}/people" aria-label="Update participants of ${esc(e.name)}" title="Update participants">${icon('userEdit')}</a>`
+              : ''
+          }
         </div>
-        ${
-          e.date <= ymd()
-            ? `<div class="foot"><a class="ibadge people" href="#/event/${esc(e.id)}/people" aria-label="Update participants of ${esc(e.name)}" title="Update participants">${icon('userEdit')}</a></div>`
-            : ''
-        }
+        ${open.has(e.id) ? `<div class="who">${whoHtml(e)}</div>` : ''}
       </article>`;
+  }
+
+  function whoHtml(e) {
+    const rows = Object.values(e.attendees || {}).sort((a, b) => a.name.localeCompare(b.name));
+    if (!rows.length) return '<span class="muted">No participants yet.</span>';
+    return rows
+      .map((a) => `<span class="pn ${personKind(a.type)}"><span class="pname">${roleOf(a) === 'volunteer' ? icon('heart') : ''}${esc(a.name)}</span></span>`)
+      .join('<span class="sep">, </span>');
   }
 
   function subscribe() {
@@ -161,8 +173,12 @@ export function homeView(root, _ctx) {
 
   $('#list', root).onclick = (ev) => {
     if (ev.target.closest('a,button')) return;
-    const card = ev.target.closest('[data-href]');
-    if (card) location.hash = card.dataset.href;
+    const card = ev.target.closest('[data-id]');
+    if (!card) return;
+    const id = card.dataset.id;
+    if (open.has(id)) open.delete(id);
+    else open.add(id);
+    renderList();
   };
   $('#fix', root).onclick = () => ((fixOnly = !fixOnly), subscribe());
   from.onchange = () => ((range = { ...range, from: from.value }), subscribe());

@@ -206,7 +206,9 @@ textarea.input { resize: vertical; }
 .card.event:hover { transform: translateY(-1px); }
 .card.event.virtual { border-left-color: var(--sky-ink); }
 .card.event.in-person { border-left-color: var(--mint-ink); }
-.card.event[data-href] { cursor: pointer; }
+.card.event[data-id] { cursor: pointer; }
+.card.event .who { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: .9rem; line-height: 1.7; }
+.card.event .stats .ibadge.people { margin-left: auto; }
 .card.event .ttl { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .card.event .ttl strong { overflow-wrap: anywhere; }
 .card.event .foot { display: flex; justify-content: flex-end; margin-top: 8px; }
@@ -230,7 +232,7 @@ textarea.input { resize: vertical; }
 .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .meta { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: .9rem; margin-top: 6px; }
 .meta span { display: inline-flex; align-items: center; gap: 6px; }
-.stats { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.stats { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .pill { display: inline-flex; align-items: center; gap: 5px; background: var(--bg-2); border-radius: 999px; padding: 4px 10px; font-size: .85rem; font-weight: 600; }
 .pill.vol { background: var(--rose-bg); color: var(--rose-ink); }
 .pill.mem { background: var(--sky-bg); color: var(--sky-ink); }
