@@ -27,7 +27,7 @@ export default defineConfig({
       includeAssets: ['icons/icon.svg'],
       manifest: {
         name: 'OSG Activity Roll Call',
-        short_name: 'OSG Activity Roll Call',
+        short_name: 'Roll Call',
         description: 'Event roll call for OSG staff',
         theme_color: '#6c4cff',
         background_color: '#f2f6ff',
