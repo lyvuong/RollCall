@@ -12,6 +12,8 @@ export function participantsView(root, _ctx, eventId) {
   let people = [];
   let q = '';
   const removed = new Set(); // staged removals, applied on Done
+  const roleEdits = new Map(); // staged role changes (id -> role), applied on Done
+  const effRole = (id, a) => roleEdits.get(id) || roleOf(a);
   const unsubs = [];
 
   root.innerHTML = `
@@ -53,16 +55,21 @@ export function participantsView(root, _ctx, eventId) {
     $('#title', root).textContent = event.name;
 
     const att = event.attendees || {};
-    const { volunteers, participants } = countRoles(att);
+    const kept = Object.fromEntries(
+      Object.entries(att)
+        .filter(([id]) => !removed.has(id))
+        .map(([id, a]) => [id, { ...a, role: effRole(id, a) }]),
+    );
+    const { volunteers, participants } = countRoles(kept);
     const saved = totalVolunteerHours(event);
-    const kept = Object.fromEntries(Object.entries(att).filter(([id]) => !removed.has(id)));
     const next = totalVolunteerHours({ ...event, attendees: kept });
     const hoursHtml =
-      removed.size && next !== saved
+      next !== saved
         ? `<s class="old">${formatHours(saved)}</s> <b>${formatHours(next)}</b> hrs`
         : `${formatHours(saved)} hrs`;
     $('#sub', root).innerHTML = `${esc(formatDay(event.date))} · ${icon('clock')} ${formatHours(eventHours(event.startTime, event.endTime))} hrs · ${icon('heart')} ${volunteers} · ${icon('users')} ${participants} · ${icon('hourglass')} ${hoursHtml}`;
-    $('#done', root).textContent = removed.size ? `Remove ${removed.size} & done` : 'Done';
+    const pending = removed.size + roleEdits.size;
+    $('#done', root).textContent = pending ? `Save ${pending} change${pending === 1 ? '' : 's'} & done` : 'Done';
     $('#listTitle', root).innerHTML = `${icon('users')} Participants (${Object.keys(att).length})`;
 
     // current attendees
@@ -72,7 +79,7 @@ export function participantsView(root, _ctx, eventId) {
     $('#current', root).innerHTML = cur.length
       ? cur
           .map((a, i) => {
-            const vol = roleOf(a) === 'volunteer';
+            const vol = effRole(a.id, a) === 'volunteer';
             const kind = personKind(a.type);
             const gone = removed.has(a.id);
             const nm = esc(a.name);
@@ -128,12 +135,17 @@ export function participantsView(root, _ctx, eventId) {
       render();
     } else if (t.id === 'done') {
       const jobs = [...removed].filter((id) => att[id]).map((id) => setAttendance(eventId, { id, ...att[id] }, false));
+      for (const [id, role] of roleEdits) if (att[id] && !removed.has(id)) jobs.push(setRole(eventId, id, role));
       removed.clear();
+      roleEdits.clear();
       Promise.all(jobs).catch(fail);
       location.hash = '#/';
     } else if (t.dataset.role) {
-      const cur = roleOf(att[t.dataset.role]);
-      setRole(eventId, t.dataset.role, cur === 'volunteer' ? 'participant' : 'volunteer').catch(fail);
+      const id = t.dataset.role;
+      const next = effRole(id, att[id]) === 'volunteer' ? 'participant' : 'volunteer';
+      if (next === roleOf(att[id])) roleEdits.delete(id);
+      else roleEdits.set(id, next);
+      render();
     } else if (t.dataset.add) {
       const p = people.find((x) => x.id === t.dataset.add);
       if (p) {
