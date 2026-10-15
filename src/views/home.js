@@ -118,9 +118,12 @@ export function homeView(root, _ctx) {
     const loc = e.locationId ? locations[e.locationId] : '';
     const f = FORMAT[e.format] || FORMAT['in-person'];
     return `
-      <a class="card event ${esc(e.format)}${needsVolunteers(e) ? ' flag' : ''}" href="#/event/${esc(e.id)}">
+      <article class="card event ${esc(e.format)}${needsVolunteers(e) ? ' flag' : ''}" data-href="#/event/${esc(e.id)}">
         <div class="row">
-          <strong>${esc(e.name)}</strong>
+          <span class="ttl">
+            <a class="ibadge edit" href="#/event/${esc(e.id)}" aria-label="Edit ${esc(e.name)}" title="Edit event">${icon('edit')}</a>
+            <strong>${esc(e.name)}</strong>
+          </span>
           <span class="badge ${esc(e.format)}" title="${f.label}">${icon(f.icon)}<span class="wide">${f.label}</span></span>
         </div>
         <div class="meta">
@@ -133,7 +136,12 @@ export function homeView(root, _ctx) {
           <span class="pill hrs" title="Total volunteer hours">${icon('hourglass')}<b>${formatHours(totalVolunteerHours(e))}</b> hrs</span>
           ${needsVolunteers(e) ? `<span class="pill warn" title="Recorded hours, but no volunteers identified">${icon('alert')}<span class="wide">Assign volunteers</span><span class="narrow">Fix</span></span>` : ''}
         </div>
-      </a>`;
+        ${
+          e.date <= ymd()
+            ? `<div class="foot"><a class="ibadge people" href="#/event/${esc(e.id)}/people" aria-label="Update participants of ${esc(e.name)}" title="Update participants">${icon('userEdit')}</a></div>`
+            : ''
+        }
+      </article>`;
   }
 
   function subscribe() {
@@ -151,6 +159,11 @@ export function homeView(root, _ctx) {
     });
   }
 
+  $('#list', root).onclick = (ev) => {
+    if (ev.target.closest('a,button')) return;
+    const card = ev.target.closest('[data-href]');
+    if (card) location.hash = card.dataset.href;
+  };
   $('#fix', root).onclick = () => ((fixOnly = !fixOnly), subscribe());
   from.onchange = () => ((range = { ...range, from: from.value }), subscribe());
   to.onchange = () => ((range = { ...range, to: to.value }), subscribe());

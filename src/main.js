@@ -8,6 +8,7 @@ import { icon, logo } from './lib/icons.js';
 import { applyTheme, toggleTheme, effective } from './lib/theme.js';
 import { homeView } from './views/home.js';
 import { eventView } from './views/event.js';
+import { participantsView } from './views/people.js';
 import { settingsView } from './views/settings.js';
 import { importView } from './views/import.js';
 
@@ -168,6 +169,8 @@ function route() {
     cleanup = importView(view, ctx);
   } else if (hash === '/event/new') {
     cleanup = eventView(view, ctx, null);
+  } else if ((m = hash.match(/^\/event\/([^/]+)\/people$/))) {
+    cleanup = participantsView(view, ctx, m[1]);
   } else if ((m = hash.match(/^\/event\/([^/]+)$/))) {
     cleanup = eventView(view, ctx, m[1]);
   } else {
