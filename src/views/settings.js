@@ -73,7 +73,7 @@ export function settingsView(root, ctx) {
       <ul id="invs" class="rows"></ul>
     </section>
     <section class="card">
-      <h2>${icon('shield')} Staffs</h2>
+      <h2>${icon('shield')} Staff</h2>
       <div id="mems" class="tags"></div>
     </section>`
         : ''
