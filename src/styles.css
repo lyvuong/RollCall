@@ -479,3 +479,4 @@ img, svg, video { max-width: 100%; }
 
 .check-row { display: flex; gap: 8px; align-items: flex-start; font-size: .9rem; margin: 6px 0 10px; }
 .check-row input { margin-top: 3px; }
+.logo { background: #fff; box-sizing: border-box; object-fit: contain; }

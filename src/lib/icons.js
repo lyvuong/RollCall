@@ -46,16 +46,7 @@ export function icon(name, cls = '') {
   return `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[name] || ''}</svg>`;
 }
 
-/** App logo: clipboard with check on a pastel gradient tile. */
+/** App logo: the OSG people-circle mark on a white tile. */
 export function logo(size = 32) {
-  return `<svg class="logo" width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="OSG Activity Roll Call logo">
-    <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#c9bdff"/><stop offset="1" stop-color="#9fe3cf"/>
-    </linearGradient></defs>
-    <rect width="64" height="64" rx="16" fill="url(#lg)"/>
-    <rect x="22" y="9" width="20" height="10" rx="3.5" fill="#fff"/>
-    <rect x="14" y="14" width="36" height="42" rx="7" fill="#fff"/>
-    <rect x="25" y="11" width="14" height="6" rx="3" fill="#6d5ce7" opacity=".85"/>
-    <path d="M24 36l6.5 6.5L42 30" fill="none" stroke="#6d5ce7" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-  </svg>`;
+  return `<img class="logo" src="/icons/icon-192.png" width="${size}" height="${size}" style="padding:${Math.round(size * 0.1)}px" alt="OSG Activity Roll Call logo" />`;
 }
