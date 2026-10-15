@@ -111,8 +111,8 @@ function showName(user) {
     try {
       await setMyName(user.uid, $('#yourName').value);
       await enter(user);
-    } catch {
-      toast('Could not save your name.');
+    } catch (err) {
+      toast(`Could not save your name (${err.code || err.message}).`);
     }
   };
 }
