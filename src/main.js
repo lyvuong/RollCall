@@ -11,6 +11,7 @@ import { eventView } from './views/event.js';
 import { participantsView } from './views/people.js';
 import { settingsView } from './views/settings.js';
 import { importView } from './views/import.js';
+import { aboutView } from './views/about.js';
 
 applyTheme();
 
@@ -162,7 +163,7 @@ function renderShell() {
     </header>
     <div id="offline" class="offline" role="status" hidden>${icon('cloudOff')} Offline — changes will sync when you reconnect.</div>
     <main id="view"></main>
-    <footer class="site-foot">v${esc(__APP_VERSION__)} · © ${new Date().getFullYear()} OSG. All rights reserved.</footer>
+    <footer class="site-foot"><a href="#/about">About</a> · v${esc(__APP_VERSION__)} · © ${new Date().getFullYear()} OSG. All rights reserved.</footer>
     <nav class="tabbar" aria-label="Main">${navHtml}</nav>`;
   $('#themeBtn').onclick = toggleTheme;
   themeButton();
@@ -190,6 +191,9 @@ function route() {
   if (hash === '/settings') {
     nav = 'settings';
     cleanup = settingsView(view, ctx);
+  } else if (hash === '/about') {
+    nav = 'settings';
+    cleanup = aboutView(view);
   } else if (hash === '/import') {
     nav = 'settings';
     cleanup = importView(view, ctx);
