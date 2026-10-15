@@ -58,7 +58,7 @@ export function aboutView(root) {
         <a class="chip" href="${REPO}" target="_blank" rel="noopener noreferrer">${icon('file')} GitHub repository</a>
         <a class="chip" href="${REPO}/issues" target="_blank" rel="noopener noreferrer">${icon('alert')} Report an issue</a>
       </div>
-      <p class="muted"><small>© ${new Date().getFullYear()} Ly Vuong. All rights reserved.</small></p>
+      <p class="muted"><small>© ${new Date().getFullYear()} OSG. All rights reserved.</small></p>
     </section>`;
   return () => {};
 }
