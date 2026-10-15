@@ -392,7 +392,7 @@ textarea.input { resize: vertical; }
 .old { color: var(--muted); text-decoration: line-through; }
 
 /* Never exceed the viewport width */
-html, body { max-width: 100%; overflow-x: hidden; }
+html, body { max-width: 100%; overflow-x: clip; }
 .grid3, .grid2 { grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); }
 .grid3 { --cols: 3; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); }
 .grid2 { --cols: 2; }
@@ -418,3 +418,12 @@ img, svg, video { max-width: 100%; }
   .filter .dates .input { font-size: .85rem; padding-left: 6px; padding-right: 6px; }
   .filter .dates input::-webkit-calendar-picker-indicator { display: none; }
 }
+
+/* Collapsible, pinned date-range card */
+.card.filter { position: sticky; top: var(--ab, 60px); z-index: 8; padding: 6px 12px; margin-bottom: 12px; }
+.ftoggle { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; font: inherit; font-weight: 700; color: var(--text); padding: 8px 0; cursor: pointer; text-align: left; }
+.ftoggle .fsum { flex: 1; min-width: 0; font-size: .92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ftoggle .fchev { display: inline-flex; color: var(--muted); transition: transform .15s; transform: rotate(90deg); }
+.ftoggle.open .fchev { transform: rotate(-90deg); }
+#fBody { display: grid; gap: 10px; padding: 4px 0 8px; }
+#fBody[hidden] { display: none; }

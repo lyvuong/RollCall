@@ -40,6 +40,7 @@ const PRESETS = [
 // Remembered across navigation within the session.
 let range = null;
 const open = new Set(); // expanded event cards
+let filterOpen = false; // date-range card expanded?
 let fixOnly = false; // only events that still need volunteers identified, across all dates
 const ALL = { from: '2000-01-01', to: '2099-12-31' };
 const defaultRange = () => PRESETS[0].get(ymd());
@@ -56,6 +57,10 @@ export function homeView(root, _ctx) {
       <a class="btn primary fab" href="#/event/new" aria-label="New event" title="New event">${icon('plus')}<span class="wide">New event</span></a>
     </section>
     <section class="card filter" aria-label="Date range">
+      <button type="button" class="ftoggle" id="fToggle" aria-expanded="false" aria-controls="fBody">
+        ${icon('calendar')}<span id="fSum" class="fsum"></span><span class="fchev">${icon('chevron')}</span>
+      </button>
+      <div id="fBody" hidden>
       <div class="chips" id="chips"></div>
       <div class="chips"><button type="button" class="chip fix" id="fix" aria-pressed="false">${icon('alert')} <span id="fixLbl">Needs volunteers</span></button></div>
       <div class="dates">
@@ -64,15 +69,34 @@ export function homeView(root, _ctx) {
         <label class="field"><span class="lbl">${icon('calendar')} To</span>
           <input type="date" id="to" class="input" /></label>
       </div>
+      </div>
     </section>
     <section id="list" aria-live="polite"></section>`;
 
   const from = $('#from', root);
   const to = $('#to', root);
 
+  const short = (d) => new Date(d + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  function setFilterOpen(on) {
+    filterOpen = on;
+    $('#fBody', root).hidden = !on;
+    $('#fToggle', root).setAttribute('aria-expanded', String(on));
+    $('#fToggle', root).classList.toggle('open', on);
+  }
+
   function syncInputs() {
     from.value = range.from;
     to.value = range.to;
+    const preset = PRESETS.find((p) => {
+      const r = p.get(ymd());
+      return r.from === range.from && r.to === range.to;
+    });
+    $('#fSum', root).textContent = fixOnly
+      ? 'All dates · needs volunteers'
+      : preset
+        ? `${preset.label} · ${short(range.from)} – ${short(range.to)}`
+        : `${short(range.from)} – ${short(range.to)}`;
     const today = ymd();
     $('#chips', root).innerHTML = PRESETS.map((p) => {
       const r = p.get(today);
@@ -180,6 +204,10 @@ export function homeView(root, _ctx) {
     else open.add(id);
     renderList();
   };
+  $('#fToggle', root).onclick = () => setFilterOpen(!filterOpen);
+  setFilterOpen(filterOpen);
+  const appbar = document.querySelector('.appbar');
+  if (appbar) root.style.setProperty('--ab', `${appbar.offsetHeight}px`);
   $('#fix', root).onclick = () => ((fixOnly = !fixOnly), subscribe());
   from.onchange = () => ((range = { ...range, from: from.value }), subscribe());
   to.onchange = () => ((range = { ...range, to: to.value }), subscribe());
