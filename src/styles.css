@@ -362,3 +362,27 @@ textarea.input { resize: vertical; }
   #body h1 { font-size: 1.25rem; }
   .prow { padding: 4px 0; }
 }
+
+/* Event detail: fit one screen */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid2 .field[hidden] { display: none; }
+.evt .form { gap: 8px; padding: 12px; }
+.evt .field { gap: 3px; font-size: .78rem; }
+.evt .input { padding: 8px 10px; min-height: 0; }
+.evt textarea.input { resize: none; }
+.evt .actions .btn { padding: 8px 12px; }
+.evt #summary { padding: 10px 12px; display: grid; gap: 8px; }
+.evt .summary { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.evt .stat { padding: 6px 2px; font-size: .7rem; border-radius: 12px; }
+.evt .stat span { font-size: 1.15rem; display: inline; margin-right: 3px; }
+.evt .stat .i { display: none; }
+.evt .btn.block { width: 100%; justify-content: center; }
+.evt .notice { margin: 0; padding: 6px 10px; font-size: .8rem; }
+@media (max-width: 520px) {
+  .evt .grid3 { grid-template-columns: 1.5fr 1fr 1fr; }
+  .evt .grid3 .field:first-child { grid-column: auto; }
+  .evt .summary { grid-template-columns: repeat(4, 1fr); }
+  .evt .bar { margin-bottom: 4px; }
+}
+
+.old { color: var(--muted); text-decoration: line-through; }

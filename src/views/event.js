@@ -1,13 +1,9 @@
 import {
   watchEvent,
-  watchPeople,
   watchLocations,
   createEvent,
   updateEvent,
   deleteEvent,
-  setAttendance,
-  setRole,
-  addPerson,
   fetchRecentEvents,
 } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
@@ -24,9 +20,7 @@ const tint = (name) => [...name].reduce((a, c) => a + c.charCodeAt(0), 0) % 4;
 export function eventView(root, _ctx, eventId) {
   const isNew = !eventId;
   let event = isNew ? null : undefined; // undefined = loading, null = not found
-  let people = [];
   let locations = [];
-  let search = '';
   let formReady = false;
   let locationId = '';
   let template = null; // past event chosen from suggestions
@@ -39,9 +33,9 @@ export function eventView(root, _ctx, eventId) {
     <section class="bar">
       <a class="btn ghost" href="#/">${icon('back')} Events</a>
     </section>
-    <h1 id="title" style="margin-bottom:14px">${isNew ? 'New event' : 'Event'}</h1>
+    <h1 id="title" class="evt-title" ${isNew ? '' : 'hidden'}>${isNew ? 'New event' : 'Event'}</h1>
     <p id="state" class="muted">${isNew ? '' : 'Loading…'}</p>
-    <div id="body" hidden>
+    <div id="body" class="${isNew ? '' : 'evt'}" hidden>
       <form id="f" class="card form" autocomplete="off">
         <div class="field suggest-wrap">
           <label for="name" class="lbl">${icon('edit')} Name</label>
@@ -51,7 +45,7 @@ export function eventView(root, _ctx, eventId) {
         </div>
         <div id="prefill" class="notice" hidden></div>
         <label class="field"><span class="lbl">${icon('file')} Description</span>
-          <textarea id="desc" class="input" rows="3" maxlength="1000"></textarea></label>
+          <textarea id="desc" class="input" rows="2" maxlength="1000"></textarea></label>
         <div class="grid3">
           <label class="field"><span class="lbl">${icon('calendar')} Date</span>
             <input id="date" type="date" class="input" required /></label>
@@ -60,6 +54,7 @@ export function eventView(root, _ctx, eventId) {
           <label class="field"><span class="lbl">${icon('clock')} End</span>
             <input id="end" type="time" class="input" required /></label>
         </div>
+        <div class="grid2">
         <label class="field"><span class="lbl">${icon('globe')} Format</span>
           <select id="format" class="input">
             <option value="in-person">In person</option>
@@ -70,6 +65,7 @@ export function eventView(root, _ctx, eventId) {
         <label class="field" id="locWrap"><span class="lbl">${icon('pin')} Location</span>
           <select id="location" class="input"></select>
         </label>
+        </div>
         <div class="actions">
           <button class="btn primary" type="submit">${icon('save')} ${isNew ? 'Create event' : 'Save changes'}</button>
           ${isNew ? '' : `<button class="btn danger" type="button" id="del">${icon('trash')} Delete</button>`}
@@ -79,22 +75,7 @@ export function eventView(root, _ctx, eventId) {
         isNew
           ? `<p class="muted">${icon('users')} Save the event, then take roll call.</p>`
           : `
-      <section class="card" id="summary" aria-label="Summary"></section>
-      <section class="card">
-        <h2>${icon('users')} Roll call</h2>
-        <div class="inputicon">${icon('search')}
-          <input id="search" class="input" type="search" placeholder="Search names…" aria-label="Search names" />
-        </div>
-        <ul id="people" class="checklist"></ul>
-        <form id="addForm" class="add">
-          <input id="newName" class="input" placeholder="New person's name" maxlength="80" required aria-label="New person's name" />
-          <select id="newType" class="input" aria-label="Type">
-            <option value="community">Community member</option>
-            <option value="osg">OSG member</option>
-          </select>
-          <button class="btn" type="submit">${icon('userPlus')} Add &amp; check in</button>
-        </form>
-      </section>`
+      <section class="card compact" id="summary" aria-label="Summary"></section>`
       }
     </div>`;
 
@@ -294,101 +275,16 @@ export function eventView(root, _ctx, eventId) {
     el.innerHTML = `
       ${
         needsVolunteers(event)
-          ? `<div class="notice warn">${icon('alert')} <span>${formatHours(event.volunteerHours)} volunteer hours were recorded for this event, but no volunteers are identified. Tap the role button next to each volunteer below.</span></div>`
+          ? `<div class="notice warn">${icon('alert')} <span>${formatHours(event.volunteerHours)} volunteer hrs recorded, but no volunteers identified.</span></div>`
           : ''
       }
       <div class="summary">
-        <div class="stat" title="Hours per event">${icon('clock')}<span>${formatHours(hours)}</span>hrs<span class="wide"> / event</span></div>
-        <div class="stat" title="Volunteers">${icon('heart')}<span>${volunteers}</span><span class="wide">volunteers</span><span class="narrow">vols</span></div>
-        <div class="stat" title="Participants">${icon('users')}<span>${participants}</span><span class="wide">participants</span><span class="narrow">parts</span></div>
-        <div class="stat total" title="Total volunteer hours">${icon('hourglass')}<span>${formatHours(totalVolunteerHours(event))}</span>hrs<span class="wide"> total</span></div>
-      </div>`;
-  }
-
-  function renderPeople() {
-    const ul = $('#people', root);
-    if (!ul || !event) return;
-    const attendees = event.attendees || {};
-    const byId = new Map(people.map((p) => [p.id, p]));
-    // Include attendees whose person record was since deleted.
-    for (const [id, a] of Object.entries(attendees)) if (!byId.has(id)) byId.set(id, { id, ...a });
-    const q = search.trim().toLowerCase();
-    const rows = [...byId.values()]
-      .filter((p) => !q || p.name.toLowerCase().includes(q))
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    if (!rows.length) {
-      ul.innerHTML = `<li class="empty">${
-        byId.size ? 'No matching names.' : 'No saved names yet. Add the first person below.'
-      }</li>`;
-      return;
-    }
-    ul.innerHTML = rows
-      .map((p) => {
-        const kind = personKind(p.type);
-        const here = attendees[p.id];
-        const vol = here && roleOf(here) === 'volunteer';
-        return `
-      <li class="rowrole">
-        <label class="check">
-          <input type="checkbox" data-id="${esc(p.id)}" ${here ? 'checked' : ''} />
-          <span class="box">${icon('check')}</span>
-          <span class="avatar av${tint(p.name)}">${esc(initials(p.name))}</span>
-          <span class="nm">${esc(p.name)}</span>
-          <span class="badge ${kind}" title="${KIND_LABEL[kind]}">${KIND_ICON[kind]}<span class="wide">${KIND_LABEL[kind]}</span></span>
-        </label>
-        ${
-          here
-            ? `<button type="button" class="role ${vol ? 'on' : ''}" data-role="${esc(p.id)}" aria-pressed="${vol}"
-                 title="${vol ? 'Volunteer (tap to make Participant)' : 'Participant (tap to make Volunteer)'}">
-                 ${icon(vol ? 'heart' : 'users')}<span class="wide">${vol ? 'Volunteer' : 'Participant'}</span></button>`
-            : ''
-        }
-      </li>`;
-      })
-      .join('');
-  }
-
-  const peopleList = $('#people', root);
-  if (peopleList) {
-    peopleList.onclick = (ev) => {
-      const btn = ev.target.closest('button[data-role]');
-      if (!btn || !event) return;
-      const cur = roleOf((event.attendees || {})[btn.dataset.role]);
-      setRole(eventId, btn.dataset.role, cur === 'volunteer' ? 'participant' : 'volunteer').catch(() =>
-        toast('Could not update.'),
-      );
-    };
-    peopleList.onchange = (ev) => {
-      const box = ev.target.closest('input[type=checkbox]');
-      if (!box || !event) return;
-      const p =
-        people.find((x) => x.id === box.dataset.id) ||
-        { id: box.dataset.id, ...(event.attendees || {})[box.dataset.id] };
-      setAttendance(eventId, p, box.checked).catch(() => toast('Could not update.'));
-    };
-    $('#search', root).oninput = (ev) => {
-      search = ev.target.value;
-      renderPeople();
-    };
-    $('#addForm', root).onsubmit = (ev) => {
-      ev.preventDefault();
-      const nameEl2 = $('#newName', root);
-      const name = nameEl2.value.trim().replace(/\s+/g, ' ');
-      if (!name) return;
-      const existing = people.find((p) => p.name.toLowerCase() === name.toLowerCase());
-      let person = existing;
-      if (!person) {
-        const created = addPerson(name, $('#newType', root).value);
-        created.done.catch(() => toast('Could not save person.'));
-        person = created.person;
-      }
-      setAttendance(eventId, person, true).catch(() => toast('Could not check in.'));
-      toast(existing ? `${existing.name} already saved — checked in` : `${name} added`);
-      nameEl2.value = '';
-      search = '';
-      $('#search', root).value = '';
-    };
+        <div class="stat" title="Hours per event">${icon('clock')}<span>${formatHours(hours)}</span>hrs</div>
+        <div class="stat" title="Volunteers">${icon('heart')}<span>${volunteers}</span>vols</div>
+        <div class="stat" title="Participants">${icon('users')}<span>${participants}</span>parts</div>
+        <div class="stat total" title="Total volunteer hours">${icon('hourglass')}<span>${formatHours(totalVolunteerHours(event))}</span>total</div>
+      </div>
+      <a class="btn primary block" href="#/event/${esc(eventId)}/people">${icon('userEdit')} Participants (${volunteers + participants})</a>`;
   }
 
   /* ----- subscriptions ----- */
@@ -407,12 +303,6 @@ export function eventView(root, _ctx, eventId) {
     nameEl.focus();
   } else {
     unsubs.push(
-      watchPeople((rows) => {
-        people = rows;
-        renderPeople();
-      }),
-    );
-    unsubs.push(
       watchEvent(eventId, (e) => {
         event = e;
         if (!e) {
@@ -428,7 +318,6 @@ export function eventView(root, _ctx, eventId) {
         }
         showBody();
         renderSummary();
-        renderPeople();
       }),
     );
   }
