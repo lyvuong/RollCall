@@ -468,3 +468,7 @@ img, svg, video { max-width: 100%; }
 .dev { display: flex; align-items: center; gap: 14px; margin: 10px 0; }
 .dev > div { display: grid; gap: 2px; min-width: 0; }
 .avatar-lg { width: 72px; height: 72px; border-radius: 18px; object-fit: cover; flex: none; border: 2px solid var(--primary-tint); }
+
+.site-foot { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; }
+.site-foot a.info-badge { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 999px; background: var(--primary-tint); color: var(--primary-ink); text-decoration: none; }
+.info-badge .i { width: 14px; height: 14px; }

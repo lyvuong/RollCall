@@ -30,6 +30,7 @@ const P = {
   star: '<path d="m12 2 2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 14.3l-4.8 2.6.9-5.4-3.9-3.8 5.4-.8Z"/>',
   userEdit: '<path d="M14 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="8" cy="7" r="4"/><path d="m15 18.5 5.5-5.5a1.8 1.8 0 0 1 2.5 2.5L17.5 21l-3.5.5Z"/>',
   minus: '<circle cx="12" cy="12" r="10"/><path d="M8 12h8"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
   swap: '<path d="m17 3 4 4-4 4M21 7H8M7 21l-4-4 4-4M3 17h13"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
   file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h8"/>',
