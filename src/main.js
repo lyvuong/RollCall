@@ -155,7 +155,7 @@ function themeButton() {
 function renderShell() {
   app.innerHTML = `
     <header class="appbar">
-      <a href="#/" class="brand">${logo(36)}<span class="wide">OSG Activity Roll Call</span></a>
+      <a href="#/" class="brand">${logo(36)}<span>OSG Activity Roll Call</span></a>
       <nav class="topnav" aria-label="Main">${navHtml}</nav>
       <span class="spacer"></span>
       <button class="icon-btn" id="themeBtn" type="button"></button>

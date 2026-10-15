@@ -440,3 +440,9 @@ img, svg, video { max-width: 100%; }
 .tag .mb { width: 26px; height: 26px; margin-left: 0; }
 .tag .mb .i { width: 13px; height: 13px; }
 .tag small { padding-right: 8px; }
+.brand { min-width: 0; line-height: 1.15; }
+.brand span { min-width: 0; }
+@media (max-width: 520px) {
+  .brand { font-size: .95rem; gap: 8px; }
+  .appbar { gap: 8px; }
+}
