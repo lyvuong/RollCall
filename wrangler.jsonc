@@ -2,6 +2,9 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "rollcall",
   "compatibility_date": "2026-10-01",
+  // Build the app as part of `wrangler deploy`, so deploys work even when the
+  // CI "Build command" field is left empty.
+  "build": { "command": "npm run build" },
   // Static PWA served by Workers; unknown paths fall back to index.html (SPA).
   "assets": {
     "directory": "./dist",
