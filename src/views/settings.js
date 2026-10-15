@@ -16,7 +16,7 @@ import {
 } from '../data.js';
 import { esc, $, toast, randomCode } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { ymd, addDays } from '../lib/time.js';
+import { ymd, addDays, personKind } from '../lib/time.js';
 import { getPref, setPref } from '../lib/theme.js';
 
 const fail = (msg) => () => toast(msg);
@@ -131,11 +131,10 @@ export function settingsView(root, ctx) {
   /* ----- people ----- */
 
   const renderPeople = () => {
-    const n = (t) => people.filter((p) => p.type === t).length;
+    const n = (t) => people.filter((p) => personKind(p.type) === t).length;
     $('#pplCounts', root).innerHTML = `
-      <span class="pill mem" title="Members">${icon('star')}<b>${n('member')}</b> members</span>
-      <span class="pill vol" title="Volunteers">${icon('heart')}<b>${n('volunteer')}</b> volunteers</span>
-      <span class="pill hrs" title="Both member and volunteer">${icon('users')}<b>${n('both')}</b> both</span>`;
+      <span class="pill mem" title="OSG members">${icon('star')}<b>${n('osg')}</b> OSG members</span>
+      <span class="pill vol" title="Community members">${icon('users')}<b>${n('community')}</b> community</span>`;
     const q = $('#peopleSearch', root).value.trim().toLowerCase();
     if (!q) {
       $('#ppl', root).innerHTML = `<li class="empty">${
@@ -149,9 +148,8 @@ export function settingsView(root, ctx) {
           .map(
             (p) => `<li data-id="${esc(p.id)}"><span class="nm">${esc(p.name)}</span>
               <select class="input small" data-act="type" aria-label="Type for ${esc(p.name)}">
-                <option value="volunteer" ${p.type === 'volunteer' ? 'selected' : ''}>Volunteer</option>
-                <option value="member" ${p.type === 'member' ? 'selected' : ''}>Member</option>
-                <option value="both" ${p.type === 'both' ? 'selected' : ''}>Both</option>
+                <option value="osg" ${personKind(p.type) === 'osg' ? 'selected' : ''}>OSG member</option>
+                <option value="community" ${personKind(p.type) === 'community' ? 'selected' : ''}>Community</option>
               </select>
               <button class="btn small" data-act="rename" aria-label="Rename ${esc(p.name)}">${icon('edit')}</button>
               <button class="btn small danger" data-act="del" aria-label="Delete ${esc(p.name)}">${icon('trash')}</button></li>`,

@@ -17,6 +17,7 @@ import {
   serverTimestamp,
   Timestamp,
 } from 'firebase/firestore';
+import { personKind } from './lib/time.js';
 import { db } from './firebase.js';
 
 const withId = (d) => ({ id: d.id, ...d.data() });
@@ -91,11 +92,15 @@ export function deleteEvent(id) {
   return deleteDoc(doc(db, 'events', id));
 }
 
-export function setAttendance(eventId, person, present) {
+export function setAttendance(eventId, person, present, role = 'participant') {
   const key = `attendees.${person.id}`;
   return updateDoc(doc(db, 'events', eventId), {
-    [key]: present ? { name: person.name, type: person.type === 'member' ? 'member' : 'volunteer' } : deleteField(),
+    [key]: present ? { name: person.name, type: personKind(person.type), role } : deleteField(),
   });
+}
+
+export function setRole(eventId, personId, role) {
+  return updateDoc(doc(db, 'events', eventId), { [`attendees.${personId}.role`]: role });
 }
 
 /* ---------- people (frequent flyers) ---------- */

@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   addDays,
   eventHours,
-  countByType,
+  countRoles,
+  roleOf,
+  personKind,
   totalVolunteerHours,
   formatTime,
   formatHours,
@@ -15,25 +17,30 @@ describe('time helpers', () => {
     expect(eventHours('11:00', '10:00')).toBe(0);
   });
 
-  it('total hours = event hours x volunteers, members excluded', () => {
+  it('total hours = event hours x volunteers; participants excluded', () => {
     const event = {
       startTime: '09:00',
       endTime: '11:30',
       attendees: {
-        a: { type: 'volunteer' },
-        b: { type: 'volunteer' },
-        c: { type: 'volunteer' },
-        d: { type: 'volunteer' },
-        e: { type: 'member' },
+        a: { type: 'community', role: 'volunteer' },
+        b: { type: 'osg', role: 'volunteer' },
+        c: { type: 'community', role: 'volunteer' },
+        d: { type: 'community', role: 'volunteer' },
+        e: { type: 'osg', role: 'participant' },
       },
     };
-    expect(countByType(event.attendees)).toEqual({ volunteers: 4, members: 1 });
+    expect(countRoles(event.attendees)).toEqual({ volunteers: 4, participants: 1 });
     expect(totalVolunteerHours(event)).toBe(10);
   });
 
-  it('a person who is both member and volunteer counts as a volunteer', () => {
-    const attendees = { a: { type: 'both' }, b: { type: 'member' } };
-    expect(countByType(attendees)).toEqual({ volunteers: 1, members: 1 });
+  it('role is per event; legacy attendees and recorded hours still work', () => {
+    expect(roleOf({ type: 'community', role: 'participant' })).toBe('participant');
+    expect(roleOf({ type: 'volunteer' })).toBe('volunteer');
+    expect(roleOf({ type: 'member' })).toBe('participant');
+    expect(personKind('both')).toBe('osg');
+    expect(personKind('volunteer')).toBe('community');
+    const noVols = { startTime: '09:00', endTime: '10:00', volunteerHours: 7.5, attendees: { a: { role: 'participant' } } };
+    expect(totalVolunteerHours(noVols)).toBe(7.5);
   });
 
   it('adds days across month and year boundaries', () => {

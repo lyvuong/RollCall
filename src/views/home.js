@@ -9,7 +9,7 @@ import {
   formatTimeShort,
   formatHours,
   eventHours,
-  countByType,
+  countRoles,
   totalVolunteerHours,
 } from '../lib/time.js';
 
@@ -100,7 +100,7 @@ export function homeView(root, _ctx) {
   }
 
   function card(e) {
-    const { volunteers, members } = countByType(e.attendees);
+    const { volunteers, participants } = countRoles(e.attendees);
     const loc = e.locationId ? locations[e.locationId] : '';
     const f = FORMAT[e.format] || FORMAT['in-person'];
     return `
@@ -115,7 +115,7 @@ export function homeView(root, _ctx) {
         </div>
         <div class="stats">
           <span class="pill vol" title="Volunteers">${icon('heart')}<b>${volunteers}</b><span class="wide">volunteer${volunteers === 1 ? '' : 's'}</span></span>
-          <span class="pill mem" title="Members">${icon('star')}<b>${members}</b><span class="wide">member${members === 1 ? '' : 's'}</span></span>
+          <span class="pill mem" title="Participants">${icon('users')}<b>${participants}</b><span class="wide">participant${participants === 1 ? '' : 's'}</span></span>
           <span class="pill hrs" title="Total volunteer hours">${icon('hourglass')}<b>${formatHours(totalVolunteerHours(e))}</b> hrs</span>
         </div>
       </a>`;

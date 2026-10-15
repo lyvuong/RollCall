@@ -6,10 +6,10 @@ import { planImport, TEMPLATES, isAmsExport, amsToEventsCsv, amsToPeopleCsv } fr
 
 const HELP = {
   people: {
-    title: 'People (members and volunteers)',
+    title: 'People (OSG and community members)',
     columns: [
       ['name', 'Full name (required)'],
-      ['type', '"member", "volunteer" or "both" (required)'],
+      ['type', '"osg" (OSG member) or "community" (required)'],
     ],
   },
   events: {
@@ -21,7 +21,8 @@ const HELP = {
       ['format', 'in-person, virtual or both (default in-person)'],
       ['location', 'Created in Settings if new'],
       ['description', 'Optional'],
-      ['attendees', 'Names separated by ";". Add ":member", ":volunteer" or ":both" for new people (default volunteer)'],
+      ['volunteer hours', 'Optional total, used until volunteers are marked on the event'],
+      ['attendees', 'Names separated by ";". For new people add ":osg" or ":community" (default community); add a second ":volunteer" to set the role (default participant), e.g. "Sam Lee:community:volunteer"'],
     ],
   },
 };
@@ -48,7 +49,7 @@ export function importView(root, _ctx) {
       <div class="dropzone">
         <input type="file" id="file" accept=".csv,.tsv,.txt,text/csv" aria-label="CSV file" />
         <span class="muted">or paste CSV text</span>
-        <textarea id="paste" class="input" rows="4" placeholder="name,type&#10;Jane Doe,volunteer"></textarea>
+        <textarea id="paste" class="input" rows="4" placeholder="name,type&#10;Jane Doe,community"></textarea>
       </div>
     </section>
     <section class="card" id="preview" hidden></section>`;
@@ -65,7 +66,7 @@ export function importView(root, _ctx) {
         <tbody>${h.columns.map(([c, d]) => `<tr><td><code>${esc(c)}</code></td><td>${esc(d)}</td></tr>`).join('')}</tbody>
       </table></div>
       <p class="muted">Column order does not matter. Existing names and events are skipped, so it is safe to re-import.
-        ${kind === 'events' ? 'Import people first if you want their member/volunteer type exact.' : ''}</p>
+        ${kind === 'events' ? 'Import people first if you want their type exact.' : ''}</p>
       <button class="btn" id="tpl" type="button">${icon('download')} Download template</button>`;
     $('#tpl', root).onclick = () => {
       const blob = new Blob([toCSV(TEMPLATES[kind])], { type: 'text/csv' });
@@ -167,7 +168,7 @@ export function importView(root, _ctx) {
     b.onclick = () => {
       kind = b.dataset.k;
       $('#paste', root).placeholder =
-        kind === 'people' ? 'name,type\nJane Doe,volunteer' : 'name,date,start,end,format,location,attendees';
+        kind === 'people' ? 'name,type\nJane Doe,community' : 'name,date,start,end,format,location,attendees';
       renderHelp();
       buildPreview();
     };

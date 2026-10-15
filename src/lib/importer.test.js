@@ -46,34 +46,38 @@ describe('field parsers', () => {
     expect(parseFormat('Online')).toBe('virtual');
     expect(parseFormat('Hybrid')).toBe('both');
     expect(parseFormat('???')).toBeNull();
-    expect(parseType('OSG Member')).toBe('member');
-    expect(parseType('Volunteer')).toBe('volunteer');
+    expect(parseType('OSG Member')).toBe('osg');
+    expect(parseType('Community Member')).toBe('community');
+    expect(parseType('Volunteer')).toBe('community');
     expect(parseType('x')).toBeNull();
   });
 });
 
 describe('planImport', () => {
   it('people: creates, skips duplicates, flags errors', () => {
-    const ex = { ...empty(), people: [{ id: 'p0', name: 'Jane Doe', type: 'member' }] };
-    const plan = planImport('people', 'name,type\nJane Doe,volunteer\nBob Roe,volunteer\nbob roe,member\nNo Type,\n', ex, newId);
+    const ex = { ...empty(), people: [{ id: 'p0', name: 'Jane Doe', type: 'osg' }] };
+    const plan = planImport('people', 'name,type\nJane Doe,community\nBob Roe,community\nbob roe,osg\nNo Type,\n', ex, newId);
     expect(plan.stats).toMatchObject({ ready: 1, skipped: 2, errors: 1 });
     expect(plan.ops).toHaveLength(1);
-    expect(plan.ops[0].data).toMatchObject({ name: 'Bob Roe', nameLower: 'bob roe', type: 'volunteer' });
+    expect(plan.ops[0].data).toMatchObject({ name: 'Bob Roe', nameLower: 'bob roe', type: 'community' });
   });
 
   it('events: parses, creates locations/people, builds attendees', () => {
     const csv = [
       'name,date,start,end,format,location,description,attendees',
-      'Food Drive,3/14/2026,9:00 AM,12:30 PM,in-person,Main Hall,Monthly,"Jane Doe; New Person:member"',
+      'Food Drive,3/14/2026,9:00 AM,12:30 PM,in-person,Main Hall,Monthly,"Jane Doe:community:volunteer; New Person:osg"',
       'Webinar,2026-03-20,18:00,19:00,virtual,Ignored,,',
       'Bad,2026-03-20,10:00,09:00,virtual,,,',
     ].join('\n');
-    const ex = { ...empty(), people: [{ id: 'p1', name: 'Jane Doe', type: 'volunteer' }] };
+    const ex = { ...empty(), people: [{ id: 'p1', name: 'Jane Doe', type: 'community' }] };
     const plan = planImport('events', csv, ex, newId);
     expect(plan.stats).toMatchObject({ ready: 2, errors: 1, newLocations: 1, newPeople: 1 });
     const food = plan.ops.find((o) => o.col === 'events' && o.data.name === 'Food Drive');
     expect(food.data).toMatchObject({ date: '2026-03-14', startTime: '09:00', endTime: '12:30', format: 'in-person' });
-    expect(Object.values(food.data.attendees).map((a) => a.type).sort()).toEqual(['member', 'volunteer']);
+    expect(Object.values(food.data.attendees).map((a) => `${a.type}:${a.role}`).sort()).toEqual([
+      'community:volunteer',
+      'osg:participant',
+    ]);
     const web = plan.ops.find((o) => o.data.name === 'Webinar');
     expect(web.data.locationId).toBeNull();
   });
@@ -95,14 +99,16 @@ describe('AMS export', () => {
     '2026-01-13 09:00:00.5,Yoga,,0.0,Unspecified,Virtual or In-Person,Ann,Lee,Community Member',
   ].join('\n');
 
-  it('rolls attendee rows into events with derived end time', async () => {
+  it('rolls attendee rows into events: all participants, recorded hours kept', async () => {
     const { isAmsExport, amsToEventsCsv } = await import('./importer.js');
     expect(isAmsExport(csv)).toBe(true);
     const plan = planImport('events', amsToEventsCsv(csv), empty(), (c) => `${c}-x${++n}`);
     expect(plan.stats.errors).toBe(0);
     const [walk, yoga] = plan.ops.filter((o) => o.col === 'events').map((o) => o.data);
-    expect(walk.endTime).toBe('10:90'.replace('10:90', '11:30')); // 3h / 2 volunteers = 90 min
-    expect(Object.keys(walk.attendees)).toHaveLength(3);
+    expect(walk).toMatchObject({ startTime: '10:00', endTime: '11:00', volunteerHours: 3 });
+    expect(Object.values(walk.attendees).every((a) => a.role === 'participant')).toBe(true);
+    expect(Object.values(walk.attendees).map((a) => a.type).sort()).toEqual(['community', 'community', 'osg']);
+    expect(yoga.volunteerHours).toBeUndefined();
     expect(yoga.format).toBe('both');
     expect(yoga.locationId).toBeNull();
   });

@@ -6,16 +6,17 @@ import {
   updateEvent,
   deleteEvent,
   setAttendance,
+  setRole,
   addPerson,
   fetchRecentEvents,
 } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { ymd, eventHours, countByType, formatHours, formatTime } from '../lib/time.js';
+import { ymd, eventHours, countRoles, totalVolunteerHours, personKind, roleOf, formatHours, formatTime } from '../lib/time.js';
 
 const FORMAT_LABEL = { virtual: 'Virtual', 'in-person': 'In person', both: 'Hybrid' };
-const TYPE_LABEL = { volunteer: 'Volunteer', member: 'Member', both: 'Both' };
-const TYPE_ICON = { volunteer: icon('heart'), member: icon('star'), both: icon('heart') + icon('star') };
+const KIND_LABEL = { osg: 'OSG member', community: 'Community' };
+const KIND_ICON = { osg: icon('star'), community: icon('users') };
 const initials = (name) =>
   name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
 const tint = (name) => [...name].reduce((a, c) => a + c.charCodeAt(0), 0) % 4;
@@ -88,9 +89,8 @@ export function eventView(root, _ctx, eventId) {
         <form id="addForm" class="add">
           <input id="newName" class="input" placeholder="New person's name" maxlength="80" required aria-label="New person's name" />
           <select id="newType" class="input" aria-label="Type">
-            <option value="volunteer">Volunteer</option>
-            <option value="member">OSG member</option>
-            <option value="both">Both</option>
+            <option value="community">Community member</option>
+            <option value="osg">OSG member</option>
           </select>
           <button class="btn" type="submit">${icon('userPlus')} Add &amp; check in</button>
         </form>
@@ -151,7 +151,14 @@ export function eventView(root, _ctx, eventId) {
 
     if (isNew) {
       const copy = template && $('#copyAttendees', root)?.checked;
-      if (copy) data.attendees = { ...(template.attendees || {}) };
+      if (copy) {
+        data.attendees = Object.fromEntries(
+          Object.entries(template.attendees || {}).map(([id, a]) => [id, { name: a.name, type: personKind(a.type), role: roleOf(a) }]),
+        );
+        if (!Object.values(data.attendees).some((a) => a.role === 'volunteer') && template.volunteerHours) {
+          data.volunteerHours = template.volunteerHours;
+        }
+      }
       const { id, done } = createEvent(data);
       done.catch(() => toast('Could not save event.'));
       location.hash = `#/event/${id}`;
@@ -283,13 +290,13 @@ export function eventView(root, _ctx, eventId) {
     const el = $('#summary', root);
     if (!el || !event) return;
     const hours = eventHours(event.startTime, event.endTime);
-    const { volunteers, members } = countByType(event.attendees);
+    const { volunteers, participants } = countRoles(event.attendees);
     el.innerHTML = `
       <div class="summary">
         <div class="stat" title="Hours per event">${icon('clock')}<span>${formatHours(hours)}</span>hrs<span class="wide"> / event</span></div>
         <div class="stat" title="Volunteers">${icon('heart')}<span>${volunteers}</span><span class="wide">volunteers</span><span class="narrow">vols</span></div>
-        <div class="stat" title="Members">${icon('star')}<span>${members}</span><span class="wide">members</span><span class="narrow">mbrs</span></div>
-        <div class="stat total" title="Total volunteer hours">${icon('hourglass')}<span>${formatHours(hours * volunteers)}</span>hrs<span class="wide"> total</span></div>
+        <div class="stat" title="Participants">${icon('users')}<span>${participants}</span><span class="wide">participants</span><span class="narrow">parts</span></div>
+        <div class="stat total" title="Total volunteer hours">${icon('hourglass')}<span>${formatHours(totalVolunteerHours(event))}</span>hrs<span class="wide"> total</span></div>
       </div>`;
   }
 
@@ -312,23 +319,41 @@ export function eventView(root, _ctx, eventId) {
       return;
     }
     ul.innerHTML = rows
-      .map(
-        (p) => `
-      <li>
+      .map((p) => {
+        const kind = personKind(p.type);
+        const here = attendees[p.id];
+        const vol = here && roleOf(here) === 'volunteer';
+        return `
+      <li class="rowrole">
         <label class="check">
-          <input type="checkbox" data-id="${esc(p.id)}" ${attendees[p.id] ? 'checked' : ''} />
+          <input type="checkbox" data-id="${esc(p.id)}" ${here ? 'checked' : ''} />
           <span class="box">${icon('check')}</span>
           <span class="avatar av${tint(p.name)}">${esc(initials(p.name))}</span>
           <span class="nm">${esc(p.name)}</span>
-          <span class="badge ${p.type}" title="${TYPE_LABEL[p.type] || 'Volunteer'}">${TYPE_ICON[p.type] || icon('heart')}<span class="wide">${TYPE_LABEL[p.type] || 'Volunteer'}</span></span>
+          <span class="badge ${kind}" title="${KIND_LABEL[kind]}">${KIND_ICON[kind]}<span class="wide">${KIND_LABEL[kind]}</span></span>
         </label>
-      </li>`,
-      )
+        ${
+          here
+            ? `<button type="button" class="role ${vol ? 'on' : ''}" data-role="${esc(p.id)}" aria-pressed="${vol}"
+                 title="${vol ? 'Volunteer (tap to make Participant)' : 'Participant (tap to make Volunteer)'}">
+                 ${icon(vol ? 'heart' : 'users')}<span class="wide">${vol ? 'Volunteer' : 'Participant'}</span></button>`
+            : ''
+        }
+      </li>`;
+      })
       .join('');
   }
 
   const peopleList = $('#people', root);
   if (peopleList) {
+    peopleList.onclick = (ev) => {
+      const btn = ev.target.closest('button[data-role]');
+      if (!btn || !event) return;
+      const cur = roleOf((event.attendees || {})[btn.dataset.role]);
+      setRole(eventId, btn.dataset.role, cur === 'volunteer' ? 'participant' : 'volunteer').catch(() =>
+        toast('Could not update.'),
+      );
+    };
     peopleList.onchange = (ev) => {
       const box = ev.target.closest('input[type=checkbox]');
       if (!box || !event) return;

@@ -1,5 +1,5 @@
 import { parseCSV, toObjects, toCSV } from './csv.js';
-import { toMinutes } from './time.js';
+import { toMinutes, personKind } from './time.js';
 
 export const PEOPLE_ALIASES = {
   name: ['name', 'full name', 'participant', 'person'],
@@ -15,17 +15,18 @@ export const EVENT_ALIASES = {
   location: ['location', 'venue', 'place'],
   description: ['description', 'notes', 'details'],
   attendees: ['attendees', 'participants', 'people', 'names'],
+  hours: ['volunteer hours', 'total volunteer hours', 'hours'],
 };
 
 export const TEMPLATES = {
   people: [
     ['name', 'type'],
-    ['Jane Doe', 'volunteer'],
-    ['John Smith', 'member'],
+    ['Jane Doe', 'community'],
+    ['John Smith', 'osg'],
   ],
   events: [
     ['name', 'date', 'start', 'end', 'format', 'location', 'description', 'attendees'],
-    ['Food Drive', '2026-03-14', '09:00', '12:30', 'in-person', 'Main Hall', 'Monthly food drive', 'Jane Doe; John Smith:member'],
+    ['Food Drive', '2026-03-14', '09:00', '12:30', 'in-person', 'Main Hall', 'Monthly food drive', 'Jane Doe; John Smith:osg; Sam Lee:community:volunteer'],
     ['Board Meeting', '3/20/2026', '6:00 PM', '7:30 PM', 'virtual', '', '', ''],
   ],
 };
@@ -74,11 +75,11 @@ export function parseFormat(s) {
   return null;
 }
 
+/** Person type: 'osg' or 'community' (legacy member/volunteer/both are mapped). */
 export function parseType(s) {
   const v = String(s || '').toLowerCase();
-  if (/both|vol.*(member|osg)|(member|osg).*vol/.test(v)) return 'both';
-  if (/vol/.test(v)) return 'volunteer';
-  if (/member|osg/.test(v)) return 'member';
+  if (/community|vol/.test(v)) return 'community';
+  if (/osg|member|both/.test(v)) return 'osg';
   return null;
 }
 
@@ -134,7 +135,7 @@ export function planImport(kind, text, existing, newId) {
       const name = o.name.replace(/\s+/g, ' ');
       const type = parseType(o.type);
       if (!name) push(o, 'error', 'Name is empty', '');
-      else if (!type) push(o, 'error', 'Type must be "member", "volunteer" or "both"', name);
+      else if (!type) push(o, 'error', 'Type must be "osg" or "community"', name);
       else if (peopleByName.has(lower(name))) push(o, 'skip', 'Already saved', name);
       else (addPerson(name, type), push(o, 'ok', type, name));
       continue;
@@ -179,18 +180,18 @@ export function planImport(kind, text, existing, newId) {
     const attendees = {};
     const names = (o.attendees || '').split(/[;\n|]/).map((s) => s.trim()).filter(Boolean);
     for (const raw of names) {
-      const m = raw.match(/^(.*?)\s*:\s*(member|volunteer|both)$/i);
+      const m = raw.match(/^(.*?)\s*:\s*(osg|community|member|volunteer|both)(?:\s*:\s*(participant|volunteer))?$/i);
       const pname = (m ? m[1] : raw).replace(/\s+/g, ' ');
       if (!pname) continue;
-      const person = peopleByName.get(lower(pname)) || addPerson(pname, m ? parseType(m[2]) : 'volunteer');
-      attendees[person.id] = { name: person.name, type: person.type };
+      const person = peopleByName.get(lower(pname)) || addPerson(pname, m ? parseType(m[2]) : 'community');
+      const role = m?.[3]?.toLowerCase() === 'volunteer' ? 'volunteer' : 'participant';
+      attendees[person.id] = { name: person.name, type: personKind(person.type), role };
     }
 
-    ops.push({
-      col: 'events',
-      id: newId('events'),
-      data: { name, description: o.description || '', date, startTime: start, endTime: end, format, locationId, attendees },
-    });
+    const data = { name, description: o.description || '', date, startTime: start, endTime: end, format, locationId, attendees };
+    const hrs = parseFloat(o.hours);
+    if (hrs > 0) data.volunteerHours = hrs;
+    ops.push({ col: 'events', id: newId('events'), data });
     push(o, 'ok', `${Object.keys(attendees).length} attendee(s)`, label);
   }
 
@@ -206,12 +207,15 @@ export function isAmsExport(text) {
   return AMS_COLS.every((c) => head.includes(c));
 }
 
+const amsKind = (s) => (/community/i.test(s || '') ? 'community' : 'osg');
+const amsName = (r, f, l) => `${r[f] || ''} ${r[l] || ''}`.replace(/[;|\n]/g, ' ').replace(/\s+/g, ' ').trim();
+
 /**
  * Roll AMS attendee rows up into the standard events CSV.
- * - "Community Member" => volunteer, "OSG Member"/"Unspecified" => member.
- * - The export has no end time: end = start + totalHours / volunteers, so
- *   RollCall's hours x volunteers reproduces the recorded total.
- *   Events with 0 recorded hours get a 1 minute placeholder (RollCall needs end > start).
+ * "Community Member" => community, "OSG Member"/"Unspecified" => osg.
+ * The export has no per-person role, so everyone is a participant; the recorded
+ * total is kept as volunteer hours until volunteers are marked. No end time is
+ * exported, so events default to one hour.
  */
 export function amsToEventsCsv(text) {
   const [head, ...rows] = parseCSV(text);
@@ -233,42 +237,34 @@ export function amsToEventsCsv(text) {
         location: get('location'), format: get('format'), people: new Map(),
       });
     }
-    const person = `${get('firstname')} ${get('lastname')}`.replace(/[;|\n]/g, ' ').replace(/\s+/g, ' ').trim();
-    if (!person) continue;
-    const type = /community/i.test(get('member')) ? 'volunteer' : 'member';
-    events.get(key).people.set(person.toLowerCase(), { person, type });
+    const person = amsName(r, ix.firstname, ix.lastname);
+    if (person) events.get(key).people.set(person.toLowerCase(), { person, type: amsKind(get('member')) });
   }
 
-  const out = [['name', 'date', 'start', 'end', 'format', 'location', 'description', 'attendees']];
+  const unset = (s) => (/^unspecified$/i.test(s) ? '' : s);
+  const out = [['name', 'date', 'start', 'end', 'format', 'location', 'description', 'volunteer hours', 'attendees']];
   for (const e of events.values()) {
     const [d, t] = e.date.split(' ');
-    const start = toMinutes((t || '00:00').slice(0, 5));
-    const people = [...e.people.values()];
-    const vols = people.filter((p) => p.type === 'volunteer').length;
-    const minutes = e.hours > 0 && vols > 0 ? Math.max(1, Math.round((e.hours / vols) * 60)) : 1;
-    const end = Math.min(start + minutes, 23 * 60 + 59);
+    const start = Math.min(toMinutes((t || '00:00').slice(0, 5)), 23 * 60 + 58);
     const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-    const unset = (s) => (/^(unspecified|other)?$/i.test(s) && !/^other$/i.test(s) ? '' : s);
     out.push([
-      e.name, d, hhmm(Math.min(start, end - 1)), hhmm(end), unset(e.format) || 'in-person', unset(e.location),
-      e.description, people.map((p) => `${p.person}:${p.type}`).join('; '),
+      e.name, d, hhmm(start), hhmm(Math.min(start + 60, 23 * 60 + 59)), unset(e.format) || 'in-person',
+      unset(e.location), e.description, e.hours || '',
+      [...e.people.values()].map((p) => `${p.person}:${p.type}`).join('; '),
     ]);
   }
   return toCSV(out);
 }
 
-/** People list (name,type) from an AMS export; same type mapping as amsToEventsCsv. */
+/** People list (name,type) from an AMS export. */
 export function amsToPeopleCsv(text) {
   const [head, ...rows] = parseCSV(text);
   const col = (n) => head.findIndex((h) => h.trim().toLowerCase() === n);
   const [f, l, m] = ['firstname', 'lastname', 'member'].map(col);
   const people = new Map();
   for (const r of rows) {
-    const name = `${r[f] || ''} ${r[l] || ''}`.replace(/\s+/g, ' ').trim();
-    if (!name) continue;
-    const type = /community/i.test(r[m] || '') ? 'volunteer' : 'member';
-    const prev = people.get(name.toLowerCase());
-    people.set(name.toLowerCase(), { name, type: prev && prev.type !== type ? 'both' : type });
+    const name = amsName(r, f, l);
+    if (name) people.set(name.toLowerCase(), { name, type: amsKind(r[m]) });
   }
   return toCSV([['name', 'type'], ...[...people.values()].map((p) => [p.name, p.type])]);
 }

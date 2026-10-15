@@ -47,7 +47,7 @@ service cloud.firestore {
       allow create, update: if isMember()
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
-        && request.resource.data.type in ['member', 'volunteer', 'both'];
+        && request.resource.data.type in ['osg', 'community', 'member', 'volunteer', 'both'];
       allow delete: if isMember();
     }
 

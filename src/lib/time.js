@@ -22,21 +22,35 @@ export function eventHours(start, end) {
   return Math.max(0, toMinutes(end) - toMinutes(start)) / 60;
 }
 
-export function countByType(attendees = {}) {
-  let volunteers = 0;
-  let members = 0;
-  for (const a of Object.values(attendees)) {
-    // Someone who is both a member and a volunteer counts as a volunteer once they attend.
-    if (a.type === 'member') members++;
-    else volunteers++;
-  }
-  return { volunteers, members };
+/** Person type: 'osg' (OSG member) or 'community'. Older records used member/volunteer/both. */
+export function personKind(type) {
+  return type === 'community' || type === 'volunteer' ? 'community' : 'osg';
 }
 
-/** Total hours for an event = event hours x number of volunteers. */
+/** Role at an event: 'participant' or 'volunteer'. Older attendees stored type 'volunteer'. */
+export function roleOf(a) {
+  if (a?.role === 'volunteer' || a?.role === 'participant') return a.role;
+  return a?.type === 'volunteer' ? 'volunteer' : 'participant';
+}
+
+export function countRoles(attendees = {}) {
+  let volunteers = 0;
+  let participants = 0;
+  for (const a of Object.values(attendees)) {
+    if (roleOf(a) === 'volunteer') volunteers++;
+    else participants++;
+  }
+  return { volunteers, participants };
+}
+
+/**
+ * Total volunteer hours = event hours x volunteers. Imported events that have no
+ * volunteers marked yet fall back to the recorded `volunteerHours`.
+ */
 export function totalVolunteerHours(event) {
-  const { volunteers } = countByType(event.attendees);
-  return eventHours(event.startTime, event.endTime) * volunteers;
+  const { volunteers } = countRoles(event.attendees);
+  if (volunteers > 0) return eventHours(event.startTime, event.endTime) * volunteers;
+  return Number(event.volunteerHours) || 0;
 }
 
 export function formatHours(h) {

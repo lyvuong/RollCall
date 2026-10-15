@@ -185,7 +185,13 @@ textarea.input { resize: vertical; }
 .badge.in-person { background: var(--mint-bg); color: var(--mint-ink); }
 .badge.both { background: var(--peach-bg); color: var(--peach-ink); }
 .badge.volunteer { background: var(--rose-bg); color: var(--rose-ink); }
-.badge.member { background: var(--sky-bg); color: var(--sky-ink); }
+.badge.member, .badge.osg { background: var(--sky-bg); color: var(--sky-ink); }
+.badge.community { background: var(--mint-bg); color: var(--mint-ink); }
+.rowrole { display: flex; align-items: center; gap: 8px; }
+.rowrole .check { flex: 1; min-width: 0; }
+.role { display: inline-flex; align-items: center; gap: 5px; border: 2px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 999px; padding: 6px 10px; font: inherit; font-size: .8rem; font-weight: 700; cursor: pointer; min-height: 40px; }
+.role .i { width: 1em; height: 1em; }
+.role.on { background: var(--rose-bg); border-color: var(--rose-ink); color: var(--rose-ink); }
 .badge.both { background: var(--peach-bg); color: var(--peach-ink); }
 
 /* ---------- Home ---------- */
