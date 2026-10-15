@@ -208,14 +208,15 @@ export function homeView(root, _ctx) {
   setFilterOpen(filterOpen);
   const appbar = document.querySelector('.appbar');
   if (appbar) root.style.setProperty('--ab', `${appbar.offsetHeight}px`);
-  $('#fix', root).onclick = () => ((fixOnly = !fixOnly), subscribe());
+  $('#fix', root).onclick = () => ((fixOnly = !fixOnly), subscribe(), setFilterOpen(false));
   from.onchange = () => ((range = { ...range, from: from.value }), subscribe());
-  to.onchange = () => ((range = { ...range, to: to.value }), subscribe());
+  to.onchange = () => ((range = { ...range, to: to.value }), subscribe(), setFilterOpen(false));
   $('#chips', root).onclick = (ev) => {
     const b = ev.target.closest('[data-p]');
     if (!b) return;
     range = PRESETS.find((p) => p.key === b.dataset.p).get(ymd());
     subscribe();
+    setFilterOpen(false);
   };
 
   const unsubLoc = watchLocations((rows) => {
