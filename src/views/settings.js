@@ -15,7 +15,9 @@ import {
   removeMember,
 } from '../data.js';
 import { esc, $, toast, randomCode } from '../lib/dom.js';
+import { icon } from '../lib/icons.js';
 import { ymd, addDays } from '../lib/time.js';
+import { getPref, setPref } from '../lib/theme.js';
 
 const fail = (msg) => () => toast(msg);
 
@@ -27,50 +29,68 @@ export function settingsView(root, ctx) {
   let members = [];
 
   root.innerHTML = `
-    <section class="bar"><h1>Settings</h1></section>
+    <section class="bar"><h1>${icon('settings', 'lg')} Settings</h1></section>
 
     <section class="card">
-      <h2>Locations</h2>
+      <h2>${icon('sun')} Appearance</h2>
+      <div class="seg" id="themeSeg" role="group" aria-label="Theme">
+        <button type="button" data-t="light">${icon('sun')} Light</button>
+        <button type="button" data-t="dark">${icon('moon')} Dark</button>
+        <button type="button" data-t="system">${icon('monitor')} System</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>${icon('pin')} Locations</h2>
       <ul id="locs" class="rows"></ul>
       <form id="locForm" class="add">
-        <input id="locName" class="input" placeholder="New location" maxlength="80" required />
-        <button class="btn" type="submit">Add</button>
+        <input id="locName" class="input" placeholder="New location" maxlength="80" required aria-label="New location" />
+        <button class="btn" type="submit">${icon('plus')} Add</button>
       </form>
     </section>
 
     <section class="card">
-      <h2>Saved people</h2>
+      <h2>${icon('users')} Saved people</h2>
       <p class="muted">Names saved here appear as quick check-boxes on every event.</p>
-      <input id="peopleSearch" class="input" type="search" placeholder="Search names…" />
+      <div class="inputicon">${icon('search')}
+        <input id="peopleSearch" class="input" type="search" placeholder="Search names…" aria-label="Search names" />
+      </div>
       <ul id="ppl" class="rows"></ul>
+      <a class="btn" href="#/import" style="margin-top:14px">${icon('upload')} Import people or past events</a>
     </section>
 
     ${
       ctx.isAdmin
         ? `
     <section class="card">
-      <h2>Invitation codes</h2>
+      <h2>${icon('key')} Invitation codes</h2>
       <p class="muted">New staff sign in with Google, then enter a code. Expired codes stop working for new joiners.</p>
       <form id="invForm" class="add">
-        <input id="invLabel" class="input" placeholder="Label (optional)" maxlength="60" />
-        <input id="invExp" class="input" type="date" required />
-        <button class="btn" type="submit">Create code</button>
+        <input id="invLabel" class="input" placeholder="Label (optional)" maxlength="60" aria-label="Label" />
+        <input id="invExp" class="input" type="date" required aria-label="Expiry date" />
+        <button class="btn" type="submit">${icon('plus')} Create code</button>
       </form>
       <ul id="invs" class="rows"></ul>
     </section>
     <section class="card">
-      <h2>Staff with access</h2>
+      <h2>${icon('shield')} Staff with access</h2>
       <ul id="mems" class="rows"></ul>
     </section>`
         : ''
     }
 
     <section class="card">
-      <h2>Account</h2>
+      <h2>${icon('user')} Account</h2>
       <p class="muted">${esc(ctx.user.email)}${ctx.isAdmin ? ' · admin' : ''}</p>
-      <button class="btn" id="signout">Sign out</button>
+      <button class="btn" id="signout">${icon('logout')} Sign out</button>
       <p class="muted"><small>Version ${esc(__APP_VERSION__)}</small></p>
     </section>`;
+
+  /* ----- appearance ----- */
+  const segs = root.querySelectorAll('#themeSeg [data-t]');
+  const syncSeg = () => segs.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.t === getPref())));
+  segs.forEach((b) => (b.onclick = () => (setPref(b.dataset.t), syncSeg())));
+  syncSeg();
 
   $('#signout', root).onclick = () => signOut(auth);
 
@@ -80,9 +100,9 @@ export function settingsView(root, ctx) {
     $('#locs', root).innerHTML = locations.length
       ? locations
           .map(
-            (l) => `<li data-id="${esc(l.id)}"><span class="nm">${esc(l.name)}</span>
-              <button class="btn small" data-act="rename">Rename</button>
-              <button class="btn small danger" data-act="del">Delete</button></li>`,
+            (l) => `<li data-id="${esc(l.id)}">${icon('pin')}<span class="nm">${esc(l.name)}</span>
+              <button class="btn small" data-act="rename" aria-label="Rename ${esc(l.name)}">${icon('edit')}</button>
+              <button class="btn small danger" data-act="del" aria-label="Delete ${esc(l.name)}">${icon('trash')}</button></li>`,
           )
           .join('')
       : '<li class="empty">No locations yet.</li>';
@@ -120,8 +140,8 @@ export function settingsView(root, ctx) {
                 <option value="volunteer" ${p.type === 'volunteer' ? 'selected' : ''}>Volunteer</option>
                 <option value="member" ${p.type === 'member' ? 'selected' : ''}>Member</option>
               </select>
-              <button class="btn small" data-act="rename">Rename</button>
-              <button class="btn small danger" data-act="del">Delete</button></li>`,
+              <button class="btn small" data-act="rename" aria-label="Rename ${esc(p.name)}">${icon('edit')}</button>
+              <button class="btn small danger" data-act="del" aria-label="Delete ${esc(p.name)}">${icon('trash')}</button></li>`,
           )
           .join('')
       : '<li class="empty">No people found.</li>';
@@ -157,11 +177,11 @@ export function settingsView(root, ctx) {
             .map((i) => {
               const exp = i.expiresAt.toDate();
               const expired = exp.getTime() < now;
-              return `<li data-id="${esc(i.id)}">
+              return `<li data-id="${esc(i.id)}">${icon('key')}
                 <span class="nm"><code>${esc(i.id)}</code> ${esc(i.label)}
                   <small class="muted">${expired ? 'expired' : 'expires'} ${exp.toLocaleDateString()}</small></span>
-                <button class="btn small" data-act="copy">Copy</button>
-                <button class="btn small danger" data-act="del">Delete</button></li>`;
+                <button class="btn small" data-act="copy" aria-label="Copy code">${icon('copy')}</button>
+                <button class="btn small danger" data-act="del" aria-label="Delete code">${icon('trash')}</button></li>`;
             })
             .join('')
         : '<li class="empty">No invitation codes.</li>';
@@ -190,11 +210,11 @@ export function settingsView(root, ctx) {
       $('#mems', root).innerHTML = members.length
         ? members
             .map(
-              (m) => `<li data-id="${esc(m.id)}"><span class="nm">${esc(m.email || m.id)}</span>
+              (m) => `<li data-id="${esc(m.id)}">${icon('user')}<span class="nm">${esc(m.email || m.id)}</span>
                 ${
                   m.id === ctx.user.uid
                     ? '<small class="muted">you</small>'
-                    : '<button class="btn small danger" data-act="del">Revoke</button>'
+                    : `<button class="btn small danger" data-act="del">${icon('x')} Revoke</button>`
                 }</li>`,
             )
             .join('')
@@ -204,7 +224,7 @@ export function settingsView(root, ctx) {
       const btn = ev.target.closest('button');
       const li = ev.target.closest('li[data-id]');
       if (!btn || !li) return;
-      if (confirm('Revoke this person\'s access?')) removeMember(li.dataset.id).catch(fail('Could not revoke.'));
+      if (confirm("Revoke this person's access?")) removeMember(li.dataset.id).catch(fail('Could not revoke.'));
     };
 
     unsubs.push(

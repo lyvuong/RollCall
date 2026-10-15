@@ -5,7 +5,7 @@ import {
   assertSucceeds,
   assertFails,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, setLogLevel, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore';
 
 let env;
 const future = () => Timestamp.fromMillis(Date.now() + 86_400_000);
@@ -84,5 +84,20 @@ describe('data access', () => {
     const data = { expiresAt: future(), createdBy: 'x' };
     await assertFails(setDoc(doc(member, 'invites', 'NEW'), data));
     await assertSucceeds(setDoc(doc(admin, 'invites', 'NEW'), data));
+  });
+
+  it('member can bulk-import a large batch of people and events', async () => {
+    const db = env.authenticatedContext('member1').firestore();
+    const batch = writeBatch(db);
+    for (let i = 0; i < 200; i++) {
+      batch.set(doc(db, 'people', 'p' + i), { name: 'Person ' + i, nameLower: 'person ' + i, type: 'volunteer' });
+    }
+    for (let i = 0; i < 100; i++) {
+      batch.set(doc(db, 'events', 'ev' + i), {
+        name: 'Past ' + i, format: 'in-person', date: '2025-01-01', startTime: '09:00', endTime: '10:00',
+        attendees: { p1: { name: 'Person 1', type: 'volunteer' } },
+      });
+    }
+    await assertSucceeds(batch.commit());
   });
 });

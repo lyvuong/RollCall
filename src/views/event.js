@@ -7,9 +7,16 @@ import {
   deleteEvent,
   setAttendance,
   addPerson,
+  fetchRecentEvents,
 } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
-import { ymd, eventHours, countByType, formatHours } from '../lib/time.js';
+import { icon } from '../lib/icons.js';
+import { ymd, eventHours, countByType, formatHours, formatTime } from '../lib/time.js';
+
+const FORMAT_LABEL = { virtual: 'Virtual', 'in-person': 'In person', both: 'Hybrid' };
+const initials = (name) =>
+  name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+const tint = (name) => [...name].reduce((a, c) => a + c.charCodeAt(0), 0) % 4;
 
 export function eventView(root, _ctx, eventId) {
   const isNew = !eventId;
@@ -19,54 +26,70 @@ export function eventView(root, _ctx, eventId) {
   let search = '';
   let formReady = false;
   let locationId = '';
+  let template = null; // past event chosen from suggestions
+  let recent = []; // distinct past events, newest first
+  let suggestions = [];
+  let active = -1;
   const unsubs = [];
 
   root.innerHTML = `
     <section class="bar">
-      <a class="btn link" href="#/">← Events</a>
-      <h1 id="title">${isNew ? 'New event' : 'Event'}</h1>
+      <a class="btn ghost" href="#/">${icon('back')} Events</a>
     </section>
+    <h1 id="title" style="margin-bottom:14px">${isNew ? 'New event' : 'Event'}</h1>
     <p id="state" class="muted">${isNew ? '' : 'Loading…'}</p>
     <div id="body" hidden>
-      <form id="f" class="card form">
-        <label>Name <input id="name" class="input" required maxlength="120" /></label>
-        <label>Description <textarea id="desc" class="input" rows="3" maxlength="1000"></textarea></label>
-        <div class="grid3">
-          <label>Date <input id="date" type="date" class="input" required /></label>
-          <label>Start <input id="start" type="time" class="input" required /></label>
-          <label>End <input id="end" type="time" class="input" required /></label>
+      <form id="f" class="card form" autocomplete="off">
+        <div class="field suggest-wrap">
+          <label for="name" class="lbl">${icon('edit')} Name</label>
+          <input id="name" class="input" required maxlength="120"
+                 ${isNew ? 'role="combobox" aria-expanded="false" aria-controls="sugg" aria-autocomplete="list" placeholder="Start typing to reuse a past event…"' : ''} />
+          ${isNew ? '<ul id="sugg" class="suggest" role="listbox" hidden></ul>' : ''}
         </div>
-        <label>Format
+        <div id="prefill" class="notice" hidden></div>
+        <label class="field"><span class="lbl">${icon('file')} Description</span>
+          <textarea id="desc" class="input" rows="3" maxlength="1000"></textarea></label>
+        <div class="grid3">
+          <label class="field"><span class="lbl">${icon('calendar')} Date</span>
+            <input id="date" type="date" class="input" required /></label>
+          <label class="field"><span class="lbl">${icon('clock')} Start</span>
+            <input id="start" type="time" class="input" required /></label>
+          <label class="field"><span class="lbl">${icon('clock')} End</span>
+            <input id="end" type="time" class="input" required /></label>
+        </div>
+        <label class="field"><span class="lbl">${icon('globe')} Format</span>
           <select id="format" class="input">
             <option value="in-person">In person</option>
             <option value="virtual">Virtual</option>
             <option value="both">Both (hybrid)</option>
           </select>
         </label>
-        <label id="locWrap">Location
+        <label class="field" id="locWrap"><span class="lbl">${icon('pin')} Location</span>
           <select id="location" class="input"></select>
         </label>
         <div class="actions">
-          <button class="btn primary" type="submit">${isNew ? 'Create event' : 'Save changes'}</button>
-          ${isNew ? '' : '<button class="btn danger" type="button" id="del">Delete</button>'}
+          <button class="btn primary" type="submit">${icon('save')} ${isNew ? 'Create event' : 'Save changes'}</button>
+          ${isNew ? '' : `<button class="btn danger" type="button" id="del">${icon('trash')} Delete</button>`}
         </div>
       </form>
       ${
         isNew
-          ? '<p class="muted">Save the event, then take roll call.</p>'
+          ? `<p class="muted">${icon('users')} Save the event, then take roll call.</p>`
           : `
-      <section class="card" id="summary"></section>
+      <section class="card" id="summary" aria-label="Summary"></section>
       <section class="card">
-        <h2>Roll call</h2>
-        <input id="search" class="input" type="search" placeholder="Search names…" autocomplete="off" />
+        <h2>${icon('users')} Roll call</h2>
+        <div class="inputicon">${icon('search')}
+          <input id="search" class="input" type="search" placeholder="Search names…" aria-label="Search names" />
+        </div>
         <ul id="people" class="checklist"></ul>
         <form id="addForm" class="add">
-          <input id="newName" class="input" placeholder="New person's name" maxlength="80" required />
-          <select id="newType" class="input">
+          <input id="newName" class="input" placeholder="New person's name" maxlength="80" required aria-label="New person's name" />
+          <select id="newType" class="input" aria-label="Type">
             <option value="volunteer">Volunteer</option>
             <option value="member">OSG member</option>
           </select>
-          <button class="btn" type="submit">Add &amp; check in</button>
+          <button class="btn" type="submit">${icon('userPlus')} Add &amp; check in</button>
         </form>
       </section>`
       }
@@ -99,7 +122,7 @@ export function eventView(root, _ctx, eventId) {
     locationId = e.locationId || '';
     renderLocations();
     syncLocationVisibility();
-    $('#title', root).textContent = e.name;
+    if (!isNew) $('#title', root).textContent = e.name;
   }
 
   function showBody() {
@@ -124,6 +147,8 @@ export function eventView(root, _ctx, eventId) {
     if (data.endTime <= data.startTime) return toast('End time must be after start time.');
 
     if (isNew) {
+      const copy = template && $('#copyAttendees', root)?.checked;
+      if (copy) data.attendees = { ...(template.attendees || {}) };
       const { id, done } = createEvent(data);
       done.catch(() => toast('Could not save event.'));
       location.hash = `#/event/${id}`;
@@ -142,6 +167,113 @@ export function eventView(root, _ctx, eventId) {
     };
   }
 
+  /* ----- suggestions from past events (new events only) ----- */
+
+  const nameEl = $('#name', root);
+  const suggEl = $('#sugg', root);
+
+  function closeSuggestions() {
+    if (!suggEl) return;
+    suggEl.hidden = true;
+    nameEl.setAttribute('aria-expanded', 'false');
+    active = -1;
+  }
+
+  function renderSuggestions() {
+    if (!isNew) return;
+    const q = nameEl.value.trim().toLowerCase();
+    if (!q) return closeSuggestions();
+    suggestions = recent
+      .filter((e) => e.name.toLowerCase().includes(q))
+      .sort((a, b) => {
+        const as = a.name.toLowerCase().startsWith(q) ? 0 : 1;
+        const bs = b.name.toLowerCase().startsWith(q) ? 0 : 1;
+        return as - bs || b.date.localeCompare(a.date);
+      })
+      .slice(0, 6);
+    if (!suggestions.length) return closeSuggestions();
+    const locName = (id) => locations.find((l) => l.id === id)?.name;
+    suggEl.innerHTML = suggestions
+      .map(
+        (e, i) => `
+        <li role="option" id="s${i}" data-i="${i}" aria-selected="${i === active}">
+          <strong>${icon('history')} ${esc(e.name)}</strong>
+          <span class="sub">
+            <span>${formatTime(e.startTime)} – ${formatTime(e.endTime)}</span>
+            <span>${esc(FORMAT_LABEL[e.format] || e.format)}</span>
+            ${e.locationId && locName(e.locationId) ? `<span>${esc(locName(e.locationId))}</span>` : ''}
+            <span>last on ${esc(e.date)}</span>
+          </span>
+        </li>`,
+      )
+      .join('');
+    suggEl.hidden = false;
+    nameEl.setAttribute('aria-expanded', 'true');
+  }
+
+  function pickSuggestion(i) {
+    const e = suggestions[i];
+    if (!e) return;
+    template = e;
+    // Reuse everything except the date, which is usually the only thing that changes.
+    $('#name', root).value = e.name;
+    $('#desc', root).value = e.description || '';
+    $('#start', root).value = e.startTime;
+    $('#end', root).value = e.endTime;
+    $('#format', root).value = e.format;
+    locationId = e.locationId || '';
+    renderLocations();
+    syncLocationVisibility();
+    closeSuggestions();
+
+    const n = Object.keys(e.attendees || {}).length;
+    const box = $('#prefill', root);
+    box.hidden = false;
+    box.innerHTML = `
+      <span>${icon('history')} Filled in from “${esc(e.name)}” (${esc(e.date)}). Just pick the new date.</span>
+      ${
+        n
+          ? `<label><input type="checkbox" id="copyAttendees" /> Also check in the same ${n} attendee${n === 1 ? '' : 's'}</label>`
+          : ''
+      }`;
+    $('#date', root).focus();
+  }
+
+  if (isNew) {
+    nameEl.addEventListener('input', () => {
+      active = -1;
+      renderSuggestions();
+    });
+    nameEl.addEventListener('blur', () => setTimeout(closeSuggestions, 120));
+    nameEl.addEventListener('keydown', (ev) => {
+      if (suggEl.hidden) return;
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        const n = suggestions.length;
+        active = (active + (ev.key === 'ArrowDown' ? 1 : -1) + n) % n;
+        renderSuggestions();
+      } else if (ev.key === 'Enter' && active >= 0) {
+        ev.preventDefault();
+        pickSuggestion(active);
+      } else if (ev.key === 'Escape') closeSuggestions();
+    });
+    // mousedown (not click) so it fires before the input loses focus.
+    suggEl.addEventListener('mousedown', (ev) => {
+      const li = ev.target.closest('li[data-i]');
+      if (li) (ev.preventDefault(), pickSuggestion(+li.dataset.i));
+    });
+    fetchRecentEvents()
+      .then((rows) => {
+        const seen = new Set();
+        recent = rows.filter((e) => {
+          const k = e.name.trim().toLowerCase();
+          return seen.has(k) ? false : (seen.add(k), true);
+        });
+        if (document.activeElement === nameEl) renderSuggestions();
+      })
+      .catch(() => {});
+  }
+
   /* ----- roll call ----- */
 
   function renderSummary() {
@@ -151,10 +283,10 @@ export function eventView(root, _ctx, eventId) {
     const { volunteers, members } = countByType(event.attendees);
     el.innerHTML = `
       <div class="summary">
-        <div><span>${formatHours(hours)}</span>hrs / event</div>
-        <div><span>${volunteers}</span>volunteers</div>
-        <div><span>${members}</span>members</div>
-        <div class="total"><span>${formatHours(hours * volunteers)}</span>total volunteer hrs</div>
+        <div class="stat">${icon('clock')}<span>${formatHours(hours)}</span>hrs / event</div>
+        <div class="stat">${icon('heart')}<span>${volunteers}</span>volunteers</div>
+        <div class="stat">${icon('star')}<span>${members}</span>members</div>
+        <div class="stat total">${icon('hourglass')}<span>${formatHours(hours * volunteers)}</span>volunteer hrs</div>
       </div>`;
   }
 
@@ -182,8 +314,12 @@ export function eventView(root, _ctx, eventId) {
       <li>
         <label class="check">
           <input type="checkbox" data-id="${esc(p.id)}" ${attendees[p.id] ? 'checked' : ''} />
+          <span class="box">${icon('check')}</span>
+          <span class="avatar av${tint(p.name)}">${esc(initials(p.name))}</span>
           <span class="nm">${esc(p.name)}</span>
-          <span class="badge ${p.type}">${p.type === 'volunteer' ? 'Volunteer' : 'Member'}</span>
+          <span class="badge ${p.type}">${icon(p.type === 'volunteer' ? 'heart' : 'star')}${
+            p.type === 'volunteer' ? 'Volunteer' : 'Member'
+          }</span>
         </label>
       </li>`,
       )
@@ -206,8 +342,8 @@ export function eventView(root, _ctx, eventId) {
     };
     $('#addForm', root).onsubmit = (ev) => {
       ev.preventDefault();
-      const nameEl = $('#newName', root);
-      const name = nameEl.value.trim().replace(/\s+/g, ' ');
+      const nameEl2 = $('#newName', root);
+      const name = nameEl2.value.trim().replace(/\s+/g, ' ');
       if (!name) return;
       const existing = people.find((p) => p.name.toLowerCase() === name.toLowerCase());
       let person = existing;
@@ -218,7 +354,7 @@ export function eventView(root, _ctx, eventId) {
       }
       setAttendance(eventId, person, true).catch(() => toast('Could not check in.'));
       toast(existing ? `${existing.name} already saved — checked in` : `${name} added`);
-      nameEl.value = '';
+      nameEl2.value = '';
       search = '';
       $('#search', root).value = '';
     };
@@ -234,11 +370,10 @@ export function eventView(root, _ctx, eventId) {
   );
 
   if (isNew) {
-    const today = ymd();
-    fillForm({ name: '', date: today, startTime: '09:00', endTime: '11:00', format: 'in-person' });
-    $('#title', root).textContent = 'New event';
+    fillForm({ name: '', date: ymd(), startTime: '09:00', endTime: '11:00', format: 'in-person' });
     formReady = true;
     showBody();
+    nameEl.focus();
   } else {
     unsubs.push(
       watchPeople((rows) => {

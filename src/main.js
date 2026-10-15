@@ -4,9 +4,14 @@ import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from
 import { auth } from './firebase.js';
 import { getMembership, getIsAdmin, redeemInvite } from './data.js';
 import { esc, $, toast } from './lib/dom.js';
+import { icon, logo } from './lib/icons.js';
+import { applyTheme, toggleTheme, effective } from './lib/theme.js';
 import { homeView } from './views/home.js';
 import { eventView } from './views/event.js';
 import { settingsView } from './views/settings.js';
+import { importView } from './views/import.js';
+
+applyTheme();
 
 // Auto-update: a new deploy produces a new service worker. Installed phones
 // check on launch, when the app returns to the foreground, and hourly; the new
@@ -41,10 +46,11 @@ function renderCard(html) {
 
 function showLogin(error = '') {
   renderCard(`
+    ${logo(72)}
     <h1>RollCall</h1>
-    <p class="muted">Staff roll call for OSG events.</p>
-    ${error ? `<p class="error">${esc(error)}</p>` : ''}
-    <button class="btn primary block" id="signin">Sign in with Google</button>`);
+    <p class="muted">Roll call and volunteer hours for OSG events.</p>
+    ${error ? `<p class="error">${icon('alert')}${esc(error)}</p>` : ''}
+    <button class="btn primary block" id="signin">${icon('login')} Sign in with Google</button>`);
   $('#signin').onclick = async () => {
     try {
       await signInWithPopup(auth, new GoogleAuthProvider());
@@ -56,15 +62,16 @@ function showLogin(error = '') {
 
 function showJoin(user, error = '') {
   renderCard(`
+    ${logo(64)}
     <h1>Enter invitation code</h1>
     <p class="muted">Signed in as ${esc(user.email)}. Ask an admin for a code.</p>
-    ${error ? `<p class="error">${esc(error)}</p>` : ''}
-    <form id="join">
+    ${error ? `<p class="error">${icon('alert')}${esc(error)}</p>` : ''}
+    <form id="join" class="form">
       <input id="code" class="input code" autocomplete="off" autocapitalize="characters"
-             maxlength="16" placeholder="CODE" required />
-      <button class="btn primary block" type="submit">Join</button>
+             maxlength="16" placeholder="CODE" aria-label="Invitation code" required />
+      <button class="btn primary block" type="submit">${icon('key')} Join</button>
     </form>
-    <button class="btn link" id="signout">Use a different account</button>`);
+    <button class="btn ghost" id="signout">${icon('logout')} Use a different account</button>`);
   $('#signout').onclick = () => signOut(auth);
   $('#join').onsubmit = async (e) => {
     e.preventDefault();
@@ -89,25 +96,45 @@ onAuthStateChanged(auth, (user) => {
   ctx = null;
   if (cleanup) cleanup(), (cleanup = null);
   if (!user) return showLogin();
-  renderCard('<p class="muted">Loading…</p>');
+  renderCard(`${logo(56)}<p class="muted">Loading…</p>`);
   enter(user);
 });
 
 /* ---------- shell & router ---------- */
 
+const NAV = [
+  { key: 'home', href: '#/', label: 'Events', icon: 'calendar' },
+  { key: 'settings', href: '#/settings', label: 'Settings', icon: 'settings' },
+];
+const navHtml = NAV.map(
+  (n) => `<a class="navlink" href="${n.href}" data-nav="${n.key}">${icon(n.icon)}<span>${n.label}</span></a>`,
+).join('');
+
+function themeButton() {
+  const dark = effective() === 'dark';
+  const btn = $('#themeBtn');
+  if (!btn) return;
+  btn.innerHTML = icon(dark ? 'sun' : 'moon');
+  btn.setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
+  btn.title = btn.getAttribute('aria-label');
+}
+
 function renderShell() {
   app.innerHTML = `
-    <header class="top">
-      <a href="#/" class="brand">RollCall</a>
-      <nav>
-        <a href="#/" data-nav="home">Events</a>
-        <a href="#/settings" data-nav="settings">Settings</a>
-      </nav>
+    <header class="appbar">
+      <a href="#/" class="brand">${logo(36)}<span>RollCall</span></a>
+      <nav class="topnav" aria-label="Main">${navHtml}</nav>
+      <span class="spacer"></span>
+      <button class="icon-btn" id="themeBtn" type="button"></button>
     </header>
-    <div id="offline" class="offline" hidden>Offline — changes will sync when you reconnect.</div>
-    <main id="view"></main>`;
+    <div id="offline" class="offline" role="status" hidden>${icon('cloudOff')} Offline — changes will sync when you reconnect.</div>
+    <main id="view"></main>
+    <nav class="tabbar" aria-label="Main">${navHtml}</nav>`;
+  $('#themeBtn').onclick = toggleTheme;
+  themeButton();
   syncOffline();
 }
+window.addEventListener('themechange', themeButton);
 
 function syncOffline() {
   const el = $('#offline');
@@ -129,6 +156,9 @@ function route() {
   if (hash === '/settings') {
     nav = 'settings';
     cleanup = settingsView(view, ctx);
+  } else if (hash === '/import') {
+    nav = 'settings';
+    cleanup = importView(view, ctx);
   } else if (hash === '/event/new') {
     cleanup = eventView(view, ctx, null);
   } else if ((m = hash.match(/^\/event\/([^/]+)$/))) {
@@ -136,7 +166,11 @@ function route() {
   } else {
     cleanup = homeView(view, ctx);
   }
-  document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === nav));
+  document.querySelectorAll('[data-nav]').forEach((a) => {
+    const on = a.dataset.nav === nav;
+    a.classList.toggle('active', on);
+    on ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current');
+  });
   window.scrollTo(0, 0);
 }
 

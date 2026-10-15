@@ -1,5 +1,6 @@
 import { watchEvents, watchLocations } from '../data.js';
 import { esc, $ } from '../lib/dom.js';
+import { icon } from '../lib/icons.js';
 import {
   ymd,
   addDays,
@@ -11,11 +12,30 @@ import {
   totalVolunteerHours,
 } from '../lib/time.js';
 
-const FORMAT_LABEL = { virtual: 'Virtual', 'in-person': 'In person', both: 'Hybrid' };
+const FORMAT = {
+  virtual: { label: 'Virtual', icon: 'video' },
+  'in-person': { label: 'In person', icon: 'building' },
+  both: { label: 'Hybrid', icon: 'globe' },
+};
+
+const startOfWeek = (d) => addDays(d, -((new Date(d + 'T00:00').getDay() + 6) % 7));
+const PRESETS = [
+  { key: 'default', label: 'Yesterday–tomorrow', get: (t) => ({ from: addDays(t, -1), to: addDays(t, 1) }) },
+  { key: 'week', label: 'This week', get: (t) => ({ from: startOfWeek(t), to: addDays(startOfWeek(t), 6) }) },
+  {
+    key: 'month',
+    label: 'This month',
+    get: (t) => {
+      const [y, m] = t.split('-').map(Number);
+      return { from: `${y}-${String(m).padStart(2, '0')}-01`, to: ymd(new Date(y, m, 0)) };
+    },
+  },
+  { key: '30', label: 'Last 30 days', get: (t) => ({ from: addDays(t, -30), to: t }) },
+];
 
 // Remembered across navigation within the session.
 let range = null;
-const defaultRange = () => ({ from: addDays(ymd(), -1), to: addDays(ymd(), 1) });
+const defaultRange = () => PRESETS[0].get(ymd());
 
 export function homeView(root, _ctx) {
   range ||= defaultRange();
@@ -25,25 +45,42 @@ export function homeView(root, _ctx) {
 
   root.innerHTML = `
     <section class="bar">
-      <h1>Events</h1>
-      <a class="btn primary" href="#/event/new">+ New event</a>
+      <h1>${icon('calendar', 'lg')} Events</h1>
+      <a class="btn primary fab" href="#/event/new">${icon('plus')} New event</a>
     </section>
-    <section class="card filter">
-      <label>From <input type="date" id="from" class="input" /></label>
-      <label>To <input type="date" id="to" class="input" /></label>
-      <button class="btn" id="reset">Yesterday–tomorrow</button>
+    <section class="card filter" aria-label="Date range">
+      <div class="chips" id="chips"></div>
+      <div class="dates">
+        <label class="field"><span class="lbl">${icon('calendar')} From</span>
+          <input type="date" id="from" class="input" /></label>
+        <label class="field"><span class="lbl">${icon('calendar')} To</span>
+          <input type="date" id="to" class="input" /></label>
+      </div>
     </section>
     <section id="list" aria-live="polite"></section>`;
 
   const from = $('#from', root);
   const to = $('#to', root);
-  from.value = range.from;
-  to.value = range.to;
+
+  function syncInputs() {
+    from.value = range.from;
+    to.value = range.to;
+    const today = ymd();
+    $('#chips', root).innerHTML = PRESETS.map((p) => {
+      const r = p.get(today);
+      const on = r.from === range.from && r.to === range.to;
+      return `<button type="button" class="chip" data-p="${p.key}" aria-pressed="${on}">${esc(p.label)}</button>`;
+    }).join('');
+  }
 
   function renderList() {
     const list = $('#list', root);
     if (!events.length) {
-      list.innerHTML = `<p class="empty">No events in this range.</p>`;
+      list.innerHTML = `
+        <div class="card empty">${icon('calendar', 'lg')}
+          <p>No events in this range.</p>
+          <a class="btn primary" href="#/event/new">${icon('plus')} Create an event</a>
+        </div>`;
       return;
     }
     const days = new Map();
@@ -51,10 +88,11 @@ export function homeView(root, _ctx) {
       if (!days.has(e.date)) days.set(e.date, []);
       days.get(e.date).push(e);
     }
+    const today = ymd();
     list.innerHTML = [...days]
       .map(
         ([date, items]) => `
-        <h2 class="day">${esc(formatDay(date))}</h2>
+        <h2 class="day ${date === today ? 'today' : ''}">${esc(formatDay(date))}</h2>
         ${items.map(card).join('')}`,
       )
       .join('');
@@ -63,24 +101,28 @@ export function homeView(root, _ctx) {
   function card(e) {
     const { volunteers, members } = countByType(e.attendees);
     const loc = e.locationId ? locations[e.locationId] : '';
+    const f = FORMAT[e.format] || FORMAT['in-person'];
     return `
-      <a class="card event" href="#/event/${esc(e.id)}">
+      <a class="card event ${esc(e.format)}" href="#/event/${esc(e.id)}">
         <div class="row">
           <strong>${esc(e.name)}</strong>
-          <span class="badge ${esc(e.format)}">${FORMAT_LABEL[e.format] || esc(e.format)}</span>
+          <span class="badge ${esc(e.format)}">${icon(f.icon)}${f.label}</span>
         </div>
-        <div class="muted">${formatTime(e.startTime)} – ${formatTime(e.endTime)}
-          (${formatHours(eventHours(e.startTime, e.endTime))} h)${loc ? ` · ${esc(loc)}` : ''}</div>
+        <div class="meta">
+          <span>${icon('clock')}${formatTime(e.startTime)} – ${formatTime(e.endTime)} (${formatHours(eventHours(e.startTime, e.endTime))} h)</span>
+          ${loc ? `<span>${icon('pin')}${esc(loc)}</span>` : ''}
+        </div>
         <div class="stats">
-          <span>${volunteers} volunteer${volunteers === 1 ? '' : 's'}</span>
-          <span>${members} member${members === 1 ? '' : 's'}</span>
-          <span><b>${formatHours(totalVolunteerHours(e))}</b> volunteer hrs</span>
+          <span class="pill">${icon('heart')}<b>${volunteers}</b> volunteer${volunteers === 1 ? '' : 's'}</span>
+          <span class="pill">${icon('star')}<b>${members}</b> member${members === 1 ? '' : 's'}</span>
+          <span class="pill">${icon('hourglass')}<b>${formatHours(totalVolunteerHours(e))}</b> volunteer hrs</span>
         </div>
       </a>`;
   }
 
   function subscribe() {
     unsubEvents();
+    syncInputs();
     if (!range.from || !range.to || range.from > range.to) {
       events = [];
       renderList();
@@ -94,10 +136,10 @@ export function homeView(root, _ctx) {
 
   from.onchange = () => ((range = { ...range, from: from.value }), subscribe());
   to.onchange = () => ((range = { ...range, to: to.value }), subscribe());
-  $('#reset', root).onclick = () => {
-    range = defaultRange();
-    from.value = range.from;
-    to.value = range.to;
+  $('#chips', root).onclick = (ev) => {
+    const b = ev.target.closest('[data-p]');
+    if (!b) return;
+    range = PRESETS.find((p) => p.key === b.dataset.p).get(ymd());
     subscribe();
   };
 

@@ -3,6 +3,9 @@ import {
   doc,
   addDoc,
   getDoc,
+  getDocs,
+  writeBatch,
+  limit,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -76,7 +79,7 @@ export function watchEvent(id, cb) {
  */
 export function createEvent(data) {
   const ref = doc(collection(db, 'events'));
-  const done = setDoc(ref, { ...data, attendees: {}, createdAt: serverTimestamp() });
+  const done = setDoc(ref, { ...data, attendees: data.attendees || {}, createdAt: serverTimestamp() });
   return { id: ref.id, done };
 }
 
@@ -150,3 +153,41 @@ export function watchMembers(cb) {
 }
 
 export const removeMember = (uid) => deleteDoc(doc(db, 'members', uid));
+
+/* ---------- suggestions & bulk import ---------- */
+
+/** Most recent events first (used for name suggestions). */
+export async function fetchRecentEvents(max = 500) {
+  const snap = await getDocs(query(collection(db, 'events'), orderBy('date', 'desc'), limit(max)));
+  return snap.docs.map(withId);
+}
+
+export async function loadExisting() {
+  const [people, locations, events] = await Promise.all([
+    getDocs(collection(db, 'people')),
+    getDocs(collection(db, 'locations')),
+    getDocs(collection(db, 'events')),
+  ]);
+  return {
+    people: people.docs.map(withId),
+    locations: locations.docs.map(withId),
+    events: events.docs.map(withId),
+  };
+}
+
+export const newId = (col) => doc(collection(db, col)).id;
+
+/** Write planned docs in batches of 400. Resolves when the server has them. */
+export async function commitOps(ops, onProgress = () => {}) {
+  const order = { locations: 0, people: 1, events: 2 };
+  const sorted = [...ops].sort((a, b) => order[a.col] - order[b.col]);
+  for (let i = 0; i < sorted.length; i += 400) {
+    const batch = writeBatch(db);
+    for (const op of sorted.slice(i, i + 400)) {
+      const data = op.col === 'locations' ? op.data : { ...op.data, createdAt: serverTimestamp() };
+      batch.set(doc(db, op.col, op.id), data);
+    }
+    await batch.commit();
+    onProgress(Math.min(i + 400, sorted.length), sorted.length);
+  }
+}
