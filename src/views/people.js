@@ -30,7 +30,8 @@ export function participantsView(root, _ctx, eventId) {
       </section>
       <section class="card">
         <h2 id="listTitle">${icon('users')} Participants</h2>
-        <ul id="current" class="plist"></ul>
+        <p class="muted tiny">Tap a name to toggle <b>volunteer</b> (heart). Tap × to remove.</p>
+        <div id="current" class="inl"></div>
       </section>
     </div>`;
 
@@ -60,19 +61,14 @@ export function participantsView(root, _ctx, eventId) {
       .sort((a, b) => a.name.localeCompare(b.name));
     $('#current', root).innerHTML = cur.length
       ? cur
-          .map((a) => {
+          .map((a, i) => {
             const vol = roleOf(a) === 'volunteer';
-            return `
-        <li class="prow">
-          <span class="nm">${esc(a.name)}</span>
-          ${chip(a)}
-          <button type="button" class="role ${vol ? 'on' : ''}" data-role="${esc(a.id)}" aria-pressed="${vol}"
-            title="${vol ? 'Volunteer (tap for Participant)' : 'Participant (tap for Volunteer)'}">${icon(vol ? 'heart' : 'users')}<span class="wide">${vol ? 'Volunteer' : 'Participant'}</span></button>
-          <button type="button" class="ibadge del" data-del="${esc(a.id)}" aria-label="Remove ${esc(a.name)}" title="Remove">${icon('x')}</button>
-        </li>`;
+            const kind = personKind(a.type);
+            return `<span class="pn ${vol ? 'vol' : ''}"><button type="button" class="pname" data-role="${esc(a.id)}" aria-pressed="${vol}"
+              title="${esc(KIND[kind].label)} · ${vol ? 'Volunteer (tap for Participant)' : 'Participant (tap for Volunteer)'}">${vol ? icon('heart') : ''}${esc(a.name)}</button><button type="button" class="xbtn" data-del="${esc(a.id)}" aria-label="Remove ${esc(a.name)}" title="Remove">${icon('x')}</button>${i < cur.length - 1 ? '<span class="sep">,</span>' : ''}</span>`;
           })
-          .join('')
-      : `<li class="empty">No participants yet. Search above to add people.</li>`;
+          .join(' ')
+      : `<span class="muted">No participants yet. Search above to add people.</span>`;
 
     // search results (people not yet on the event)
     const res = $('#results', root);
