@@ -440,6 +440,10 @@ img, svg, video { max-width: 100%; }
 .tag .mb { width: 26px; height: 26px; margin-left: 0; }
 .tag .mb .i { width: 13px; height: 13px; }
 .tag small { padding-right: 8px; }
+.tag .mb.sel { margin-left: -7px; background: var(--surface-2, var(--bg-2)); color: transparent; box-shadow: inset 0 0 0 2px var(--border); }
+.tag .mb.sel.on { background: var(--primary-tint); color: var(--primary-ink); box-shadow: inset 0 0 0 2px var(--primary-ink); }
+#mergeBar { margin-top: 12px; }
+#mergeBar[hidden] { display: none; }
 .brand { min-width: 0; line-height: 1.15; }
 .brand span { min-width: 0; }
 @media (max-width: 520px) {

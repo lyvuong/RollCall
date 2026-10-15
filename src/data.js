@@ -141,6 +141,35 @@ export function deletePerson(id) {
   return deleteDoc(doc(db, 'people', id));
 }
 
+/**
+ * Merge duplicate people into one: every event attendee entry for a merged id is
+ * re-pointed at keepId (volunteer wins if any entry was), then the merged docs are deleted.
+ * Returns the number of events rewritten.
+ */
+export async function mergePeople(keep, mergeIds) {
+  const gone = new Set(mergeIds.filter((id) => id !== keep.id));
+  const snap = await getDocs(collection(db, 'events'));
+  const jobs = [];
+  for (const d of snap.docs) {
+    const att = d.data().attendees || {};
+    const hit = [keep.id, ...gone].filter((id) => att[id]);
+    if (!hit.some((id) => gone.has(id))) continue;
+    const volunteer = hit.some((id) => (att[id].role || 'participant') === 'volunteer');
+    const patch = { [`attendees.${keep.id}`]: { name: keep.name, type: personKind(keep.type), role: volunteer ? 'volunteer' : 'participant' } };
+    for (const id of gone) if (att[id]) patch[`attendees.${id}`] = deleteField();
+    jobs.push({ ref: d.ref, patch });
+  }
+  for (let i = 0; i < jobs.length; i += 400) {
+    const batch = writeBatch(db);
+    for (const j of jobs.slice(i, i + 400)) batch.update(j.ref, j.patch);
+    await batch.commit();
+  }
+  const batch = writeBatch(db);
+  for (const id of gone) batch.delete(doc(db, 'people', id));
+  await batch.commit();
+  return jobs.length;
+}
+
 /* ---------- locations ---------- */
 
 export function watchLocations(cb) {

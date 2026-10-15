@@ -8,6 +8,7 @@ import {
   watchPeople,
   updatePerson,
   deletePerson,
+  mergePeople,
   watchInvites,
   createInvite,
   deleteInvite,
@@ -56,6 +57,11 @@ export function settingsView(root, ctx) {
       </div>
       <div id="pplCounts" class="counts"></div>
       <div id="ppl" class="tags"></div>
+      <form id="mergeBar" class="add" hidden>
+        <select id="mergeKeep" class="input" aria-label="Name to keep"></select>
+        <button class="btn" type="submit">${icon('users')} <span id="mergeLbl"></span></button>
+        <button class="btn ghost" type="button" id="mergeClear" aria-label="Clear selection" title="Clear selection">${icon('x')}</button>
+      </form>
       <a class="btn" href="#/import" style="margin-top:14px">${icon('upload')} Import people or past events</a>
     </section>
 
@@ -127,7 +133,25 @@ export function settingsView(root, ctx) {
 
   /* ----- people ----- */
 
+  const picked = new Set(); // person ids selected for merging
+
+  const renderMerge = () => {
+    for (const id of picked) if (!people.some((p) => p.id === id)) picked.delete(id);
+    const sel = people.filter((p) => picked.has(p.id));
+    const bar = $('#mergeBar', root);
+    bar.hidden = sel.length === 0;
+    if (!sel.length) return;
+    const keepEl = $('#mergeKeep', root);
+    const prev = keepEl.value;
+    keepEl.innerHTML = sel.map((p) => `<option value="${esc(p.id)}">Keep: ${esc(p.name)}</option>`).join('');
+    keepEl.value = sel.some((p) => p.id === prev) ? prev : [...sel].sort((a, b) => b.name.length - a.name.length)[0].id;
+    $('#mergeLbl', root).innerHTML =
+      sel.length > 1 ? `Merge ${sel.length} <span class="wide">into one</span>` : 'Select another to merge';
+    bar.querySelector('button[type=submit]').disabled = sel.length < 2;
+  };
+
   const renderPeople = () => {
+    renderMerge();
     const n = (t) => people.filter((p) => personKind(p.type) === t).length;
     $('#pplCounts', root).innerHTML = `
       <span class="pill mem" title="OSG">${icon('star')}<b>${n('osg')}</b> OSG</span>
@@ -144,7 +168,8 @@ export function settingsView(root, ctx) {
       ? rows
           .map((p) => {
             const k = personKind(p.type);
-            return `<span class="tag ${k}" data-id="${esc(p.id)}"><button type="button" class="tname" data-act="rename" title="${k === 'osg' ? 'OSG' : 'Community'} · tap to rename">${esc(p.name)}</button><button type="button" class="mb" data-act="kind" aria-label="Switch ${esc(p.name)} to ${k === 'osg' ? 'Community' : 'OSG'}" title="Switch to ${k === 'osg' ? 'Community' : 'OSG'}">${icon('swap')}</button><button type="button" class="mb del" data-act="del" aria-label="Delete ${esc(p.name)}" title="Delete">${icon('x')}</button></span>`;
+            const on = picked.has(p.id);
+            return `<span class="tag ${k}" data-id="${esc(p.id)}"><button type="button" class="mb sel${on ? ' on' : ''}" data-act="pick" aria-pressed="${on}" aria-label="Select ${esc(p.name)} to merge" title="Select to merge">${icon('check')}</button><button type="button" class="tname" data-act="rename" title="${k === 'osg' ? 'OSG' : 'Community'} · tap to rename">${esc(p.name)}</button><button type="button" class="mb" data-act="kind" aria-label="Switch ${esc(p.name)} to ${k === 'osg' ? 'Community' : 'OSG'}" title="Switch to ${k === 'osg' ? 'Community' : 'OSG'}">${icon('swap')}</button><button type="button" class="mb del" data-act="del" aria-label="Delete ${esc(p.name)}" title="Delete">${icon('x')}</button></span>`;
           })
           .join('')
       : '<span class="muted">No people found.</span>';
@@ -155,7 +180,10 @@ export function settingsView(root, ctx) {
     const li = ev.target.closest('[data-id]');
     if (!btn || !li) return;
     const p = people.find((x) => x.id === li.dataset.id);
-    if (btn.dataset.act === 'kind') {
+    if (btn.dataset.act === 'pick') {
+      if (!picked.delete(p.id)) picked.add(p.id);
+      renderPeople();
+    } else if (btn.dataset.act === 'kind') {
       updatePerson(p.id, { type: personKind(p.type) === 'osg' ? 'community' : 'osg' }).catch(fail('Could not update.'));
     } else if (btn.dataset.act === 'rename') {
       const name = prompt('Rename person', p.name);
@@ -164,6 +192,26 @@ export function settingsView(root, ctx) {
       deletePerson(p.id).catch(fail('Could not delete.'));
     }
   };
+  $('#mergeClear', root).onclick = () => (picked.clear(), renderPeople());
+  $('#mergeBar', root).onsubmit = async (ev) => {
+    ev.preventDefault();
+    const keep = people.find((p) => p.id === $('#mergeKeep', root).value);
+    const ids = [...picked];
+    if (!keep || ids.length < 2) return;
+    const others = people.filter((p) => ids.includes(p.id) && p.id !== keep.id);
+    if (!confirm(`Merge ${others.map((p) => `"${p.name}"`).join(', ')} into "${keep.name}"? Their past attendance moves to "${keep.name}" and the other names are deleted.`)) return;
+    const btn = ev.target.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      const n = await mergePeople(keep, ids);
+      picked.clear();
+      toast(`Merged into ${keep.name} · ${n} event${n === 1 ? '' : 's'} updated`);
+    } catch {
+      toast('Could not merge.');
+    }
+    renderPeople();
+  };
+
   /* ----- admin: invites & members ----- */
 
   if (ctx.isAdmin) {
