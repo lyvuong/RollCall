@@ -74,6 +74,11 @@ export function formatTimeShort(hhmm) {
   return `${((h + 11) % 12) + 1}${m ? ':' + pad(m) : ''}${h >= 12 ? 'p' : 'a'}`;
 }
 
+export function formatTime12(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return `${((h + 11) % 12) + 1}:${pad(m)} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+
 export function formatDay(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   const label = new Date(y, m - 1, d).toLocaleDateString(undefined, {

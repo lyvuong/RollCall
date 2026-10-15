@@ -1,7 +1,7 @@
 import { watchEvent, watchPeople, setAttendance, setRole, addPerson } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { countRoles, personKind, roleOf, formatDay, formatHours, totalVolunteerHours } from '../lib/time.js';
+import { countRoles, personKind, roleOf, formatDay, formatTime12, formatHours, totalVolunteerHours } from '../lib/time.js';
 
 const KIND = { osg: { label: 'OSG', icon: 'star' }, community: { label: 'Community', icon: 'users' } };
 const MAX_RESULTS = 12;
@@ -11,6 +11,7 @@ export function participantsView(root, _ctx, eventId) {
   let event;
   let people = [];
   let q = '';
+  const removed = new Set(); // staged removals, applied on Done
   const unsubs = [];
 
   root.innerHTML = `
@@ -30,8 +31,9 @@ export function participantsView(root, _ctx, eventId) {
       </section>
       <section class="card">
         <h2 id="listTitle">${icon('users')} Participants</h2>
-        <p class="legend tiny"><span class="osg">OSG</span><span class="community">Community</span><span class="vol">♥ Volunteer</span><span class="muted">Tap a name to switch Participant ↔ Volunteer</span></p>
+        <p class="legend tiny"><span class="osg">OSG</span><span class="community">Community</span><span class="vol">${icon('heart')} Volunteer</span></p>
         <div id="current" class="inl"></div>
+        <button type="button" id="done" class="btn primary block">Done</button>
       </section>
     </div>`;
 
@@ -52,7 +54,8 @@ export function participantsView(root, _ctx, eventId) {
 
     const att = event.attendees || {};
     const { volunteers, participants } = countRoles(att);
-    $('#sub', root).innerHTML = `${esc(formatDay(event.date))} · ${icon('heart')} ${volunteers} · ${icon('users')} ${participants} · ${icon('hourglass')} ${formatHours(totalVolunteerHours(event))} hrs`;
+    $('#sub', root).innerHTML = `${esc(formatDay(event.date))} · ${icon('clock')} ${event.startTime ? esc(formatTime12(event.startTime)) + (event.endTime ? '–' + esc(formatTime12(event.endTime)) : '') : ''} · ${icon('heart')} ${volunteers} · ${icon('users')} ${participants} · ${icon('hourglass')} ${formatHours(totalVolunteerHours(event))} hrs`;
+    $('#done', root).textContent = removed.size ? `Remove ${removed.size} & done` : 'Done';
     $('#listTitle', root).innerHTML = `${icon('users')} Participants (${Object.keys(att).length})`;
 
     // current attendees
@@ -64,8 +67,9 @@ export function participantsView(root, _ctx, eventId) {
           .map((a, i) => {
             const vol = roleOf(a) === 'volunteer';
             const kind = personKind(a.type);
-            return `<span class="pn ${kind}${vol ? ' vol' : ''}"><button type="button" class="pname" data-role="${esc(a.id)}" aria-pressed="${vol}"
-              title="${esc(KIND[kind].label)} · ${vol ? 'Volunteer (tap for Participant)' : 'Participant (tap for Volunteer)'}">${vol ? icon('heart') : ''}${esc(a.name)}</button><button type="button" class="xbtn" data-del="${esc(a.id)}" aria-label="Remove ${esc(a.name)}" title="Remove">${icon('x')}</button>${i < cur.length - 1 ? '<span class="sep">,</span>' : ''}</span>`;
+            const gone = removed.has(a.id);
+            const nm = esc(a.name);
+            return `<span class="pn ${kind}${gone ? ' gone' : ''}"><span class="pname" title="${KIND[kind].label} · ${vol ? 'Volunteer' : 'Participant'}">${vol ? icon('heart') : ''}${nm}</span><button type="button" class="mb role${vol ? ' on' : ''}" data-role="${esc(a.id)}" aria-label="Switch ${nm} between participant and volunteer" title="${vol ? 'Volunteer: tap for Participant' : 'Participant: tap for Volunteer'}">${icon('swap')}</button><button type="button" class="mb del${gone ? ' on' : ''}" data-del="${esc(a.id)}" aria-label="${gone ? 'Keep' : 'Remove'} ${nm}" title="${gone ? 'Undo remove' : 'Remove'}">${icon('x')}</button>${i < cur.length - 1 ? '<span class="sep">,</span>' : ''}</span>`;
           })
           .join(' ')
       : `<span class="muted">No participants yet. Search above to add people.</span>`;
@@ -111,8 +115,15 @@ export function participantsView(root, _ctx, eventId) {
     if (!t || !event) return;
     const att = event.attendees || {};
     if (t.dataset.del) {
-      const a = att[t.dataset.del];
-      if (a) setAttendance(eventId, { id: t.dataset.del, ...a }, false).catch(fail);
+      const id = t.dataset.del;
+      if (removed.has(id)) removed.delete(id);
+      else removed.add(id);
+      render();
+    } else if (t.id === 'done') {
+      const jobs = [...removed].filter((id) => att[id]).map((id) => setAttendance(eventId, { id, ...att[id] }, false));
+      removed.clear();
+      Promise.all(jobs).catch(fail);
+      location.hash = '#/';
     } else if (t.dataset.role) {
       const cur = roleOf(att[t.dataset.role]);
       setRole(eventId, t.dataset.role, cur === 'volunteer' ? 'participant' : 'volunteer').catch(fail);
