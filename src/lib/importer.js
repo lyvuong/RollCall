@@ -256,3 +256,19 @@ export function amsToEventsCsv(text) {
   }
   return toCSV(out);
 }
+
+/** People list (name,type) from an AMS export; same type mapping as amsToEventsCsv. */
+export function amsToPeopleCsv(text) {
+  const [head, ...rows] = parseCSV(text);
+  const col = (n) => head.findIndex((h) => h.trim().toLowerCase() === n);
+  const [f, l, m] = ['firstname', 'lastname', 'member'].map(col);
+  const people = new Map();
+  for (const r of rows) {
+    const name = `${r[f] || ''} ${r[l] || ''}`.replace(/\s+/g, ' ').trim();
+    if (!name) continue;
+    const type = /community/i.test(r[m] || '') ? 'volunteer' : 'member';
+    const prev = people.get(name.toLowerCase());
+    people.set(name.toLowerCase(), { name, type: prev && prev.type !== type ? 'both' : type });
+  }
+  return toCSV([['name', 'type'], ...[...people.values()].map((p) => [p.name, p.type])]);
+}

@@ -2,7 +2,7 @@ import { loadExisting, newId, commitOps } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { toCSV } from '../lib/csv.js';
-import { planImport, TEMPLATES, isAmsExport, amsToEventsCsv } from '../lib/importer.js';
+import { planImport, TEMPLATES, isAmsExport, amsToEventsCsv, amsToPeopleCsv } from '../lib/importer.js';
 
 const HELP = {
   people: {
@@ -92,7 +92,7 @@ export function importView(root, _ctx) {
       box.innerHTML = `<p class="error">${icon('alert')} Could not load existing data. Are you online?</p>`;
       return;
     }
-    const src = kind === 'events' && isAmsExport(text) ? amsToEventsCsv(text) : text;
+    const src = isAmsExport(text) ? (kind === 'events' ? amsToEventsCsv(text) : amsToPeopleCsv(text)) : text;
     plan = planImport(kind, src, existing, newId);
     renderPreview();
   }
