@@ -46,7 +46,7 @@ export function icon(name, cls = '') {
   return `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[name] || ''}</svg>`;
 }
 
-/** App logo: the OSG people-circle mark on a white tile. */
+/** App logo: the OSG people-circle mark, transparent background. */
 export function logo(size = 32) {
-  return `<img class="logo" src="/icons/icon-192.png" width="${size}" height="${size}" style="padding:${Math.round(size * 0.1)}px" alt="OSG Activity Roll Call logo" />`;
+  return `<img class="logo" src="/icons/icon-192.png" width="${size}" height="${size}" alt="OSG Activity Roll Call logo" />`;
 }

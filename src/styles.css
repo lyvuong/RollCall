@@ -311,7 +311,7 @@ textarea.input { resize: vertical; }
 
 /* ---------- Gate (login/join) ---------- */
 .gate { width: min(100%, 400px); text-align: center; display: grid; gap: 14px; padding: 28px 22px; }
-.gate .logo { margin: 0 auto; border-radius: 22px; box-shadow: var(--shadow); }
+.gate .logo { margin: 0 auto; }
 .gate h1 { font-size: 1.6rem; }
 
 #toast {
@@ -479,4 +479,4 @@ img, svg, video { max-width: 100%; }
 
 .check-row { display: flex; gap: 8px; align-items: flex-start; font-size: .9rem; margin: 6px 0 10px; }
 .check-row input { margin-top: 3px; }
-.logo { background: #fff; box-sizing: border-box; object-fit: contain; }
+.logo { box-sizing: border-box; object-fit: contain; }
