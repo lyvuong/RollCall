@@ -137,7 +137,7 @@ export function homeView(root, _ctx) {
           <span class="pill vol" title="Volunteers">${icon('heart')}<b>${volunteers}</b><span class="wide">volunteer${volunteers === 1 ? '' : 's'}</span></span>
           <span class="pill mem" title="Participants">${icon('users')}<b>${participants}</b><span class="wide">participant${participants === 1 ? '' : 's'}</span></span>
           <span class="pill hrs" title="Total volunteer hours">${icon('hourglass')}<b>${formatHours(totalVolunteerHours(e))}</b> hrs</span>
-          ${needsVolunteers(e) ? `<span class="pill warn" title="Recorded hours, but no volunteers identified">${icon('alert')}<span class="wide">Assign volunteers</span><span class="narrow">Fix</span></span>` : ''}
+          ${needsVolunteers(e) ? `<span class="pill warn" title="Recorded hours, but no volunteers identified">${icon('alert')}<span class="wide">Assign volunteers</span></span>` : ''}
           ${
             e.date <= ymd()
               ? `<a class="ibadge people" href="#/event/${esc(e.id)}/people" aria-label="Update participants of ${esc(e.name)}" title="Update participants">${icon('userEdit')}</a>`

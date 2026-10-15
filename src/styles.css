@@ -251,7 +251,7 @@ textarea.input { resize: vertical; }
 /* ---------- Event detail ---------- */
 .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .stat { background: var(--bg-2); border-radius: 14px; padding: 10px 6px; text-align: center; font-size: .78rem; color: var(--muted); }
-.stat span { display: block; font-size: 1.5rem; font-weight: 800; color: var(--text); line-height: 1.2; }
+.stat > span:not(.wide) { display: block; font-size: 1.5rem; font-weight: 800; color: var(--text); line-height: 1.2; }
 .stat.total { background: linear-gradient(135deg, var(--primary), var(--primary-2)); color: #fff; }
 .stat.total span { color: #fff; }
 .stat:nth-child(1) { background: var(--sky-bg); color: var(--sky-ink); }
@@ -376,11 +376,14 @@ textarea.input { resize: vertical; }
 .evt #summary { padding: 10px 12px; display: grid; gap: 8px; }
 .evt .summary { grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .evt .stat { padding: 6px 2px; font-size: .7rem; border-radius: 12px; }
-.evt .stat span { font-size: 1.15rem; display: inline; margin-right: 3px; }
-.evt .stat .i { display: none; }
+.evt .stat { display: flex; align-items: center; justify-content: center; gap: 4px; flex-wrap: wrap; }
+.evt .stat > span:not(.wide) { font-size: 1.15rem; display: inline; }
+.evt .stat .wide { font-size: .72rem; font-weight: 600; color: inherit; }
+.evt .stat .i { width: 14px; height: 14px; }
 .evt .btn.block { width: 100%; justify-content: center; }
 .evt .notice { margin: 0; padding: 6px 10px; font-size: .8rem; }
 @media (max-width: 520px) {
+  .evt .summary { grid-template-columns: repeat(4, 1fr); }
   .evt .grid3 { grid-template-columns: 1.5fr 1fr 1fr; }
   .evt .grid3 .field:first-child { grid-column: auto; }
   .evt .summary { grid-template-columns: repeat(4, 1fr); }

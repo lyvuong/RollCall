@@ -145,7 +145,7 @@ export function eventView(root, _ctx, eventId) {
       location.hash = `#/event/${id}`;
     } else {
       updateEvent(eventId, data).catch(() => toast('Could not save changes.'));
-      toast('Saved');
+      location.hash = '#/';
     }
   };
 
@@ -279,10 +279,10 @@ export function eventView(root, _ctx, eventId) {
           : ''
       }
       <div class="summary">
-        <div class="stat" title="Hours per event">${icon('clock')}<span>${formatHours(hours)}</span>hrs</div>
-        <div class="stat" title="Volunteers">${icon('heart')}<span>${volunteers}</span>vols</div>
-        <div class="stat" title="Participants">${icon('users')}<span>${participants}</span>parts</div>
-        <div class="stat total" title="Total volunteer hours">${icon('hourglass')}<span>${formatHours(totalVolunteerHours(event))}</span>total</div>
+        <div class="stat" title="Hours per event">${icon('clock')}<span>${formatHours(hours)}</span><span class="wide">hrs / event</span></div>
+        <div class="stat" title="Volunteers">${icon('heart')}<span>${volunteers}</span><span class="wide">volunteer${volunteers === 1 ? '' : 's'}</span></div>
+        <div class="stat" title="Participants">${icon('users')}<span>${participants}</span><span class="wide">participant${participants === 1 ? '' : 's'}</span></div>
+        <div class="stat total" title="Total volunteer hours">${icon('hourglass')}<span>${formatHours(totalVolunteerHours(event))}</span><span class="wide">hrs total</span></div>
       </div>
       <a class="btn primary block" href="#/event/${esc(eventId)}/people">${icon('userEdit')} Participants (${volunteers + participants})</a>`;
   }
