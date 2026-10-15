@@ -9,9 +9,10 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:rules": "firebase emulators:exec --only firestore \"vitest run --config vitest.rules.config.js\"",
-    "emulators": "firebase emulators:start --only auth,firestore",
+    "emulators": "firebase emulators:start --only auth,firestore --project demo-rollcall",
     "deploy": "vite build && wrangler deploy",
-    "cf:preview": "vite build && wrangler dev"
+    "cf:preview": "vite build && wrangler dev",
+    "local": "node scripts/local.mjs"
   },
   "dependencies": {
     "firebase": "^10.14.1"

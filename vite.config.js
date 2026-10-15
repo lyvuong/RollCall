@@ -29,8 +29,8 @@ export default defineConfig({
         name: 'RollCall',
         short_name: 'RollCall',
         description: 'Event roll call for OSG staff',
-        theme_color: '#6d5ce7',
-        background_color: '#f6f4ff',
+        theme_color: '#6c4cff',
+        background_color: '#f2f6ff',
         display: 'standalone',
         start_url: '/',
         icons: [

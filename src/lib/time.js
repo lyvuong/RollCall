@@ -26,8 +26,9 @@ export function countByType(attendees = {}) {
   let volunteers = 0;
   let members = 0;
   for (const a of Object.values(attendees)) {
-    if (a.type === 'volunteer') volunteers++;
-    else members++;
+    // Someone who is both a member and a volunteer counts as a volunteer once they attend.
+    if (a.type === 'member') members++;
+    else volunteers++;
   }
   return { volunteers, members };
 }
@@ -46,6 +47,12 @@ export function formatTime(hhmm) {
   const [h, m] = hhmm.split(':').map(Number);
   const ap = h >= 12 ? 'PM' : 'AM';
   return `${((h + 11) % 12) + 1}:${pad(m)} ${ap}`;
+}
+
+/** Compact time for small screens: 9a, 12:30p. */
+export function formatTimeShort(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return `${((h + 11) % 12) + 1}${m ? ':' + pad(m) : ''}${h >= 12 ? 'p' : 'a'}`;
 }
 
 export function formatDay(dateStr) {

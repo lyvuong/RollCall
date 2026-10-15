@@ -55,6 +55,7 @@ export function settingsView(root, ctx) {
       <div class="inputicon">${icon('search')}
         <input id="peopleSearch" class="input" type="search" placeholder="Search names…" aria-label="Search names" />
       </div>
+      <div id="pplCounts" class="counts"></div>
       <ul id="ppl" class="rows"></ul>
       <a class="btn" href="#/import" style="margin-top:14px">${icon('upload')} Import people or past events</a>
     </section>
@@ -130,8 +131,19 @@ export function settingsView(root, ctx) {
   /* ----- people ----- */
 
   const renderPeople = () => {
+    const n = (t) => people.filter((p) => p.type === t).length;
+    $('#pplCounts', root).innerHTML = `
+      <span class="pill mem" title="Members">${icon('star')}<b>${n('member')}</b> members</span>
+      <span class="pill vol" title="Volunteers">${icon('heart')}<b>${n('volunteer')}</b> volunteers</span>
+      <span class="pill hrs" title="Both member and volunteer">${icon('users')}<b>${n('both')}</b> both</span>`;
     const q = $('#peopleSearch', root).value.trim().toLowerCase();
-    const rows = people.filter((p) => !q || p.name.toLowerCase().includes(q));
+    if (!q) {
+      $('#ppl', root).innerHTML = `<li class="empty">${
+        people.length ? `${people.length} saved. Search a name to find, edit or remove someone.` : 'No people saved yet.'
+      }</li>`;
+      return;
+    }
+    const rows = people.filter((p) => p.name.toLowerCase().includes(q));
     $('#ppl', root).innerHTML = rows.length
       ? rows
           .map(
@@ -139,6 +151,7 @@ export function settingsView(root, ctx) {
               <select class="input small" data-act="type" aria-label="Type for ${esc(p.name)}">
                 <option value="volunteer" ${p.type === 'volunteer' ? 'selected' : ''}>Volunteer</option>
                 <option value="member" ${p.type === 'member' ? 'selected' : ''}>Member</option>
+                <option value="both" ${p.type === 'both' ? 'selected' : ''}>Both</option>
               </select>
               <button class="btn small" data-act="rename" aria-label="Rename ${esc(p.name)}">${icon('edit')}</button>
               <button class="btn small danger" data-act="del" aria-label="Delete ${esc(p.name)}">${icon('trash')}</button></li>`,

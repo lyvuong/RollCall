@@ -1,4 +1,4 @@
-import { parseCSV, toObjects } from './csv.js';
+import { parseCSV, toObjects, toCSV } from './csv.js';
 import { toMinutes } from './time.js';
 
 export const PEOPLE_ALIASES = {
@@ -76,6 +76,7 @@ export function parseFormat(s) {
 
 export function parseType(s) {
   const v = String(s || '').toLowerCase();
+  if (/both|vol.*(member|osg)|(member|osg).*vol/.test(v)) return 'both';
   if (/vol/.test(v)) return 'volunteer';
   if (/member|osg/.test(v)) return 'member';
   return null;
@@ -133,7 +134,7 @@ export function planImport(kind, text, existing, newId) {
       const name = o.name.replace(/\s+/g, ' ');
       const type = parseType(o.type);
       if (!name) push(o, 'error', 'Name is empty', '');
-      else if (!type) push(o, 'error', 'Type must be "member" or "volunteer"', name);
+      else if (!type) push(o, 'error', 'Type must be "member", "volunteer" or "both"', name);
       else if (peopleByName.has(lower(name))) push(o, 'skip', 'Already saved', name);
       else (addPerson(name, type), push(o, 'ok', type, name));
       continue;
@@ -178,7 +179,7 @@ export function planImport(kind, text, existing, newId) {
     const attendees = {};
     const names = (o.attendees || '').split(/[;\n|]/).map((s) => s.trim()).filter(Boolean);
     for (const raw of names) {
-      const m = raw.match(/^(.*?)\s*:\s*(member|volunteer)$/i);
+      const m = raw.match(/^(.*?)\s*:\s*(member|volunteer|both)$/i);
       const pname = (m ? m[1] : raw).replace(/\s+/g, ' ');
       if (!pname) continue;
       const person = peopleByName.get(lower(pname)) || addPerson(pname, m ? parseType(m[2]) : 'volunteer');
@@ -194,4 +195,64 @@ export function planImport(kind, text, existing, newId) {
   }
 
   return { kind, rows, ops, stats };
+}
+
+/* ---------- AMS export (one row per attendee) ---------- */
+
+const AMS_COLS = ['date', 'event name', 'total volunteer hours', 'firstname', 'lastname', 'member'];
+
+export function isAmsExport(text) {
+  const head = (parseCSV(text)[0] || []).map((h) => h.trim().toLowerCase());
+  return AMS_COLS.every((c) => head.includes(c));
+}
+
+/**
+ * Roll AMS attendee rows up into the standard events CSV.
+ * - "Community Member" => volunteer, "OSG Member"/"Unspecified" => member.
+ * - The export has no end time: end = start + totalHours / volunteers, so
+ *   RollCall's hours x volunteers reproduces the recorded total.
+ *   Events with 0 recorded hours get a 1 minute placeholder (RollCall needs end > start).
+ */
+export function amsToEventsCsv(text) {
+  const [head, ...rows] = parseCSV(text);
+  const col = (n) => head.findIndex((h) => h.trim().toLowerCase() === n);
+  const ix = Object.fromEntries(
+    ['date', 'event name', 'description', 'total volunteer hours', 'location', 'format', 'firstname', 'lastname', 'member']
+      .map((n) => [n, col(n)]),
+  );
+  const events = new Map();
+  for (const r of rows) {
+    const get = (n) => (ix[n] < 0 ? '' : (r[ix[n]] || '').trim());
+    const date = get('date').slice(0, 16);
+    const name = get('event name').replace(/\s+/g, ' ');
+    if (!date || !name) continue;
+    const key = `${date}|${name.toLowerCase()}`;
+    if (!events.has(key)) {
+      events.set(key, {
+        name, date, description: get('description'), hours: parseFloat(get('total volunteer hours')) || 0,
+        location: get('location'), format: get('format'), people: new Map(),
+      });
+    }
+    const person = `${get('firstname')} ${get('lastname')}`.replace(/[;|\n]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!person) continue;
+    const type = /community/i.test(get('member')) ? 'volunteer' : 'member';
+    events.get(key).people.set(person.toLowerCase(), { person, type });
+  }
+
+  const out = [['name', 'date', 'start', 'end', 'format', 'location', 'description', 'attendees']];
+  for (const e of events.values()) {
+    const [d, t] = e.date.split(' ');
+    const start = toMinutes((t || '00:00').slice(0, 5));
+    const people = [...e.people.values()];
+    const vols = people.filter((p) => p.type === 'volunteer').length;
+    const minutes = e.hours > 0 && vols > 0 ? Math.max(1, Math.round((e.hours / vols) * 60)) : 1;
+    const end = Math.min(start + minutes, 23 * 60 + 59);
+    const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const unset = (s) => (/^(unspecified|other)?$/i.test(s) && !/^other$/i.test(s) ? '' : s);
+    out.push([
+      e.name, d, hhmm(Math.min(start, end - 1)), hhmm(end), unset(e.format) || 'in-person', unset(e.location),
+      e.description, people.map((p) => `${p.person}:${p.type}`).join('; '),
+    ]);
+  }
+  return toCSV(out);
 }

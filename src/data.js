@@ -94,7 +94,7 @@ export function deleteEvent(id) {
 export function setAttendance(eventId, person, present) {
   const key = `attendees.${person.id}`;
   return updateDoc(doc(db, 'events', eventId), {
-    [key]: present ? { name: person.name, type: person.type } : deleteField(),
+    [key]: present ? { name: person.name, type: person.type === 'member' ? 'member' : 'volunteer' } : deleteField(),
   });
 }
 

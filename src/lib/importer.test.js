@@ -85,3 +85,25 @@ describe('planImport', () => {
     expect(planImport('events', 'name,date\nx,y', empty(), newId).fatal).toMatch(/start, end/);
   });
 });
+
+describe('AMS export', () => {
+  const csv = [
+    'Date,Event Name,Description,Total Volunteer Hours,Location,Format,FirstName,LastName,Member',
+    '2026-01-12 10:00:00,Walk,desc,3.0,Gilliam Place,In-Person,Ann,Lee,Community Member',
+    '2026-01-12 10:00:00,Walk,desc,3.0,Gilliam Place,In-Person,Bo,,Community Member',
+    '2026-01-12 10:00:00,Walk,desc,3.0,Gilliam Place,In-Person,Cy,Day,OSG Member',
+    '2026-01-13 09:00:00.5,Yoga,,0.0,Unspecified,Virtual or In-Person,Ann,Lee,Community Member',
+  ].join('\n');
+
+  it('rolls attendee rows into events with derived end time', async () => {
+    const { isAmsExport, amsToEventsCsv } = await import('./importer.js');
+    expect(isAmsExport(csv)).toBe(true);
+    const plan = planImport('events', amsToEventsCsv(csv), empty(), (c) => `${c}-x${++n}`);
+    expect(plan.stats.errors).toBe(0);
+    const [walk, yoga] = plan.ops.filter((o) => o.col === 'events').map((o) => o.data);
+    expect(walk.endTime).toBe('10:90'.replace('10:90', '11:30')); // 3h / 2 volunteers = 90 min
+    expect(Object.keys(walk.attendees)).toHaveLength(3);
+    expect(yoga.format).toBe('both');
+    expect(yoga.locationId).toBeNull();
+  });
+});

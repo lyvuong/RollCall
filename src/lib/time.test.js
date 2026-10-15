@@ -31,6 +31,11 @@ describe('time helpers', () => {
     expect(totalVolunteerHours(event)).toBe(10);
   });
 
+  it('a person who is both member and volunteer counts as a volunteer', () => {
+    const attendees = { a: { type: 'both' }, b: { type: 'member' } };
+    expect(countByType(attendees)).toEqual({ volunteers: 1, members: 1 });
+  });
+
   it('adds days across month and year boundaries', () => {
     expect(addDays('2026-10-15', -1)).toBe('2026-10-14');
     expect(addDays('2026-12-31', 1)).toBe('2027-01-01');

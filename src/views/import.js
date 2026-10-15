@@ -2,14 +2,14 @@ import { loadExisting, newId, commitOps } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { toCSV } from '../lib/csv.js';
-import { planImport, TEMPLATES } from '../lib/importer.js';
+import { planImport, TEMPLATES, isAmsExport, amsToEventsCsv } from '../lib/importer.js';
 
 const HELP = {
   people: {
     title: 'People (members and volunteers)',
     columns: [
       ['name', 'Full name (required)'],
-      ['type', '"member" or "volunteer" (required)'],
+      ['type', '"member", "volunteer" or "both" (required)'],
     ],
   },
   events: {
@@ -21,7 +21,7 @@ const HELP = {
       ['format', 'in-person, virtual or both (default in-person)'],
       ['location', 'Created in Settings if new'],
       ['description', 'Optional'],
-      ['attendees', 'Names separated by ";". Add ":member" or ":volunteer" for new people (default volunteer)'],
+      ['attendees', 'Names separated by ";". Add ":member", ":volunteer" or ":both" for new people (default volunteer)'],
     ],
   },
 };
@@ -92,7 +92,8 @@ export function importView(root, _ctx) {
       box.innerHTML = `<p class="error">${icon('alert')} Could not load existing data. Are you online?</p>`;
       return;
     }
-    plan = planImport(kind, text, existing, newId);
+    const src = kind === 'events' && isAmsExport(text) ? amsToEventsCsv(text) : text;
+    plan = planImport(kind, src, existing, newId);
     renderPreview();
   }
 

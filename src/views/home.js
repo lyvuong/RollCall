@@ -6,6 +6,7 @@ import {
   addDays,
   formatDay,
   formatTime,
+  formatTimeShort,
   formatHours,
   eventHours,
   countByType,
@@ -106,16 +107,16 @@ export function homeView(root, _ctx) {
       <a class="card event ${esc(e.format)}" href="#/event/${esc(e.id)}">
         <div class="row">
           <strong>${esc(e.name)}</strong>
-          <span class="badge ${esc(e.format)}">${icon(f.icon)}${f.label}</span>
+          <span class="badge ${esc(e.format)}" title="${f.label}">${icon(f.icon)}<span class="wide">${f.label}</span></span>
         </div>
         <div class="meta">
-          <span>${icon('clock')}${formatTime(e.startTime)} – ${formatTime(e.endTime)} (${formatHours(eventHours(e.startTime, e.endTime))} h)</span>
+          <span>${icon('clock')}<span class="wide">${formatTime(e.startTime)} – ${formatTime(e.endTime)}</span><span class="narrow">${formatTimeShort(e.startTime)}–${formatTimeShort(e.endTime)}</span> · ${formatHours(eventHours(e.startTime, e.endTime))}h</span>
           ${loc ? `<span>${icon('pin')}${esc(loc)}</span>` : ''}
         </div>
         <div class="stats">
-          <span class="pill">${icon('heart')}<b>${volunteers}</b> volunteer${volunteers === 1 ? '' : 's'}</span>
-          <span class="pill">${icon('star')}<b>${members}</b> member${members === 1 ? '' : 's'}</span>
-          <span class="pill">${icon('hourglass')}<b>${formatHours(totalVolunteerHours(e))}</b> volunteer hrs</span>
+          <span class="pill vol" title="Volunteers">${icon('heart')}<b>${volunteers}</b><span class="wide">volunteer${volunteers === 1 ? '' : 's'}</span></span>
+          <span class="pill mem" title="Members">${icon('star')}<b>${members}</b><span class="wide">member${members === 1 ? '' : 's'}</span></span>
+          <span class="pill hrs" title="Total volunteer hours">${icon('hourglass')}<b>${formatHours(totalVolunteerHours(e))}</b> hrs</span>
         </div>
       </a>`;
   }

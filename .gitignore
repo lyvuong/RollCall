@@ -3,3 +3,5 @@ dist
 .env.local
 .firebase
 *.log
+.emulator-data
+data/

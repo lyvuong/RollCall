@@ -73,6 +73,13 @@ function showJoin(user, error = '') {
     </form>
     <button class="btn ghost" id="signout">${icon('logout')} Use a different account</button>`);
   $('#signout').onclick = () => signOut(auth);
+  if (import.meta.env.VITE_USE_EMULATOR === '1') {
+    // Local mode: scripts/local.mjs grants membership a moment after sign-in.
+    const timer = setInterval(async () => {
+      if (!document.getElementById('join')) return clearInterval(timer);
+      if (await getMembership(user.uid)) (clearInterval(timer), enter(user));
+    }, 1500);
+  }
   $('#join').onsubmit = async (e) => {
     e.preventDefault();
     try {

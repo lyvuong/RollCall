@@ -14,6 +14,8 @@ import { icon } from '../lib/icons.js';
 import { ymd, eventHours, countByType, formatHours, formatTime } from '../lib/time.js';
 
 const FORMAT_LABEL = { virtual: 'Virtual', 'in-person': 'In person', both: 'Hybrid' };
+const TYPE_LABEL = { volunteer: 'Volunteer', member: 'Member', both: 'Both' };
+const TYPE_ICON = { volunteer: icon('heart'), member: icon('star'), both: icon('heart') + icon('star') };
 const initials = (name) =>
   name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
 const tint = (name) => [...name].reduce((a, c) => a + c.charCodeAt(0), 0) % 4;
@@ -88,6 +90,7 @@ export function eventView(root, _ctx, eventId) {
           <select id="newType" class="input" aria-label="Type">
             <option value="volunteer">Volunteer</option>
             <option value="member">OSG member</option>
+            <option value="both">Both</option>
           </select>
           <button class="btn" type="submit">${icon('userPlus')} Add &amp; check in</button>
         </form>
@@ -283,10 +286,10 @@ export function eventView(root, _ctx, eventId) {
     const { volunteers, members } = countByType(event.attendees);
     el.innerHTML = `
       <div class="summary">
-        <div class="stat">${icon('clock')}<span>${formatHours(hours)}</span>hrs / event</div>
-        <div class="stat">${icon('heart')}<span>${volunteers}</span>volunteers</div>
-        <div class="stat">${icon('star')}<span>${members}</span>members</div>
-        <div class="stat total">${icon('hourglass')}<span>${formatHours(hours * volunteers)}</span>volunteer hrs</div>
+        <div class="stat" title="Hours per event">${icon('clock')}<span>${formatHours(hours)}</span>hrs<span class="wide"> / event</span></div>
+        <div class="stat" title="Volunteers">${icon('heart')}<span>${volunteers}</span><span class="wide">volunteers</span><span class="narrow">vols</span></div>
+        <div class="stat" title="Members">${icon('star')}<span>${members}</span><span class="wide">members</span><span class="narrow">mbrs</span></div>
+        <div class="stat total" title="Total volunteer hours">${icon('hourglass')}<span>${formatHours(hours * volunteers)}</span>hrs<span class="wide"> total</span></div>
       </div>`;
   }
 
@@ -317,9 +320,7 @@ export function eventView(root, _ctx, eventId) {
           <span class="box">${icon('check')}</span>
           <span class="avatar av${tint(p.name)}">${esc(initials(p.name))}</span>
           <span class="nm">${esc(p.name)}</span>
-          <span class="badge ${p.type}">${icon(p.type === 'volunteer' ? 'heart' : 'star')}${
-            p.type === 'volunteer' ? 'Volunteer' : 'Member'
-          }</span>
+          <span class="badge ${p.type}" title="${TYPE_LABEL[p.type] || 'Volunteer'}">${TYPE_ICON[p.type] || icon('heart')}<span class="wide">${TYPE_LABEL[p.type] || 'Volunteer'}</span></span>
         </label>
       </li>`,
       )

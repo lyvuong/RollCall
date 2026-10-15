@@ -13,7 +13,9 @@ const useEmulator = env.VITE_USE_EMULATOR === '1';
 const app = initializeApp({
   apiKey: env.VITE_FIREBASE_API_KEY || 'demo-key',
   authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: env.VITE_FIREBASE_PROJECT_ID || 'demo-rollcall',
+  // Emulator mode must use the demo project that scripts/local.mjs seeds,
+  // even when .env.local holds a real project's config.
+  projectId: useEmulator ? 'demo-rollcall' : env.VITE_FIREBASE_PROJECT_ID || 'demo-rollcall',
   appId: env.VITE_FIREBASE_APP_ID,
 });
 
