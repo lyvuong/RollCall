@@ -472,3 +472,6 @@ img, svg, video { max-width: 100%; }
 .site-foot { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; }
 .site-foot a.info-badge { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 999px; background: var(--primary-tint); color: var(--primary-ink); text-decoration: none; }
 .info-badge .i { width: 14px; height: 14px; }
+
+.check-row { display: flex; gap: 8px; align-items: flex-start; font-size: .9rem; margin: 6px 0 10px; }
+.check-row input { margin-top: 3px; }

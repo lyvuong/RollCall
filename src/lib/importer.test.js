@@ -112,4 +112,15 @@ describe('AMS export', () => {
     expect(yoga.format).toBe('both');
     expect(yoga.locationId).toBeNull();
   });
+
+  it('overwrite replaces matching events in place instead of skipping', () => {
+    const csv = ['name,date,start,end,format,attendees', 'Food Drive,3/14/2026,9:00 AM,10:00 AM,in-person,Jane Doe:community:volunteer'].join(String.fromCharCode(10));
+    const ex = { people: [], locations: [], events: [{ id: 'evt1', name: 'Food Drive', date: '2026-03-14', startTime: '09:00' }] };
+    expect(planImport('events', csv, ex, newId).stats.skipped).toBe(1);
+    const plan = planImport('events', csv, ex, newId, { overwrite: true });
+    expect(plan.stats.replaced).toBe(1);
+    const op = plan.ops.find((o) => o.col === 'events');
+    expect(op.id).toBe('evt1');
+    expect(Object.values(op.data.attendees)[0].role).toBe('volunteer');
+  });
 });

@@ -94,7 +94,7 @@ const eventKey = (name, date, start) => `${lower(name)}|${date}|${start}`;
  * newId(collection) -> string (so the plan is pure and testable).
  * Returns { kind, rows:[{line,status,message,label}], ops:[{col,id,data}], stats, fatal? }.
  */
-export function planImport(kind, text, existing, newId) {
+export function planImport(kind, text, existing, newId, { overwrite = false } = {}) {
   const aliases = kind === 'people' ? PEOPLE_ALIASES : EVENT_ALIASES;
   const required = kind === 'people' ? ['name', 'type'] : ['name', 'date', 'start', 'end'];
   const { objects, missing } = toObjects(parseCSV(text), aliases);
@@ -106,10 +106,11 @@ export function planImport(kind, text, existing, newId) {
 
   const peopleByName = new Map(existing.people.map((p) => [lower(p.name), p]));
   const locByName = new Map(existing.locations.map((l) => [lower(l.name), l]));
-  const eventKeys = new Set(existing.events.map((e) => eventKey(e.name, e.date, e.startTime)));
+  const eventIds = new Map(existing.events.map((e) => [eventKey(e.name, e.date, e.startTime), e.id]));
+  const seen = new Set();
   const ops = [];
   const rows = [];
-  const stats = { ready: 0, skipped: 0, errors: 0, newPeople: 0, newLocations: 0 };
+  const stats = { ready: 0, skipped: 0, errors: 0, newPeople: 0, newLocations: 0, replaced: 0 };
 
   const addPerson = (name, type) => {
     const person = { id: newId('people'), name, type };
@@ -136,7 +137,15 @@ export function planImport(kind, text, existing, newId) {
       const type = parseType(o.type);
       if (!name) push(o, 'error', 'Name is empty', '');
       else if (!type) push(o, 'error', 'Type must be "osg" or "community"', name);
-      else if (peopleByName.has(lower(name))) push(o, 'skip', 'Already saved', name);
+      else if (peopleByName.has(lower(name))) {
+        const cur = peopleByName.get(lower(name));
+        if (overwrite && personKind(cur.type) !== type && !seen.has(`p:${lower(name)}`)) {
+          seen.add(`p:${lower(name)}`);
+          ops.push({ col: 'people', id: cur.id, data: { name: cur.name, nameLower: lower(name), type } });
+          stats.replaced++;
+          push(o, 'ok', `updated to ${type}`, name);
+        } else push(o, 'skip', 'Already saved', name);
+      }
       else (addPerson(name, type), push(o, 'ok', type, name));
       continue;
     }
@@ -165,11 +174,14 @@ export function planImport(kind, text, existing, newId) {
       push(o, 'error', problem, label);
       continue;
     }
-    if (eventKeys.has(eventKey(name, date, start))) {
+    const key = eventKey(name, date, start);
+    const existingId = eventIds.get(key);
+    const known = eventIds.has(key);
+    if (seen.has(key) || (known && !overwrite)) {
       push(o, 'skip', 'Event already exists', label);
       continue;
     }
-    eventKeys.add(eventKey(name, date, start));
+    seen.add(key);
 
     let locationId = null;
     if (format !== 'virtual' && o.location) {
@@ -191,8 +203,9 @@ export function planImport(kind, text, existing, newId) {
     const data = { name, description: o.description || '', date, startTime: start, endTime: end, format, locationId, attendees };
     const hrs = parseFloat(o.hours);
     if (hrs > 0) data.volunteerHours = hrs;
-    ops.push({ col: 'events', id: newId('events'), data });
-    push(o, 'ok', `${Object.keys(attendees).length} attendee(s)`, label);
+    ops.push({ col: 'events', id: existingId || newId('events'), data });
+    if (known) stats.replaced++;
+    push(o, 'ok', `${known ? 'replaces existing · ' : ''}${Object.keys(attendees).length} attendee(s)`, label);
   }
 
   return { kind, rows, ops, stats };

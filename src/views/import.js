@@ -31,6 +31,8 @@ export function importView(root, _ctx) {
   let kind = 'people';
   let text = '';
   let plan = null;
+  let planInput = null;
+  let overwrite = false;
   let busy = false;
 
   root.innerHTML = `
@@ -95,7 +97,12 @@ export function importView(root, _ctx) {
       return;
     }
     const src = isAmsExport(text) ? (kind === 'events' ? amsToEventsCsv(text) : amsToPeopleCsv(text)) : text;
-    plan = planImport(kind, src, existing, newId);
+    planInput = { src, existing };
+    replan();
+  }
+
+  function replan() {
+    plan = planImport(kind, planInput.src, planInput.existing, newId, { overwrite });
     renderPreview();
   }
 
@@ -110,8 +117,11 @@ export function importView(root, _ctx) {
     const writes = plan.ops.length;
     box.innerHTML = `
       <h2>${icon('check')} 2. Preview</h2>
+      <label class="check-row"><input type="checkbox" id="ow" ${overwrite ? 'checked' : ''} />
+        <span>Overwrite existing ${kind === 'people' ? 'people (update their type)' : 'events (replaces attendees, roles and hours)'}</span></label>
       <div class="stats">
         <span class="pill">${icon('check')}<b>${s.ready}</b> ready</span>
+        ${s.replaced ? `<span class="pill warn">${icon('alert')}<b>${s.replaced}</b> overwritten</span>` : ''}
         <span class="pill">${icon('copy')}<b>${s.skipped}</b> skipped</span>
         <span class="pill">${icon('alert')}<b>${s.errors}</b> with errors</span>
         ${s.newPeople && kind === 'events' ? `<span class="pill">${icon('userPlus')}<b>${s.newPeople}</b> new people</span>` : ''}
@@ -137,7 +147,13 @@ export function importView(root, _ctx) {
       </div>
       ${s.errors ? `<p class="muted">Rows with errors are left out. Fix them in your file and import again.</p>` : ''}`;
 
+    $('#ow', root).onchange = (ev) => {
+      overwrite = ev.target.checked;
+      replan();
+    };
+
     $('#go', root).onclick = async () => {
+      if (s.replaced && !confirm(`Overwrite ${s.replaced} existing ${kind === 'people' ? 'people' : 'events'}? This replaces their saved data.`)) return;
       busy = true;
       const prog = $('#prog', root);
       prog.hidden = false;
@@ -153,6 +169,7 @@ export function importView(root, _ctx) {
           <a class="btn primary" href="${kind === 'people' ? '#/settings' : '#/'}">${icon(kind === 'people' ? 'settings' : 'calendar')} Continue</a>`;
         text = '';
         plan = null;
+        overwrite = false;
         $('#paste', root).value = '';
         $('#file', root).value = '';
       } catch (e) {
