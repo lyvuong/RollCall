@@ -42,7 +42,7 @@ export function settingsView(root, ctx) {
 
     <section class="card">
       <h2>${icon('pin')} Locations</h2>
-      <ul id="locs" class="rows"></ul>
+      <div id="locs" class="tags"></div>
       <form id="locForm" class="add">
         <input id="locName" class="input" placeholder="New location" maxlength="80" required aria-label="New location" />
         <button class="btn" type="submit">${icon('plus')} Add</button>
@@ -50,13 +50,12 @@ export function settingsView(root, ctx) {
     </section>
 
     <section class="card">
-      <h2>${icon('users')} Saved people</h2>
-      <p class="muted">Names saved here appear as quick check-boxes on every event.</p>
+      <h2>${icon('users')} Saved Members</h2>
       <div class="inputicon">${icon('search')}
         <input id="peopleSearch" class="input" type="search" placeholder="Search names…" aria-label="Search names" />
       </div>
       <div id="pplCounts" class="counts"></div>
-      <ul id="ppl" class="rows"></ul>
+      <div id="ppl" class="tags"></div>
       <a class="btn" href="#/import" style="margin-top:14px">${icon('upload')} Import people or past events</a>
     </section>
 
@@ -74,8 +73,8 @@ export function settingsView(root, ctx) {
       <ul id="invs" class="rows"></ul>
     </section>
     <section class="card">
-      <h2>${icon('shield')} Staff with access</h2>
-      <ul id="mems" class="rows"></ul>
+      <h2>${icon('shield')} Staffs</h2>
+      <div id="mems" class="tags"></div>
     </section>`
         : ''
     }
@@ -101,16 +100,14 @@ export function settingsView(root, ctx) {
     $('#locs', root).innerHTML = locations.length
       ? locations
           .map(
-            (l) => `<li data-id="${esc(l.id)}">${icon('pin')}<span class="nm">${esc(l.name)}</span>
-              <button class="btn small" data-act="rename" aria-label="Rename ${esc(l.name)}">${icon('edit')}</button>
-              <button class="btn small danger" data-act="del" aria-label="Delete ${esc(l.name)}">${icon('trash')}</button></li>`,
+            (l) => `<span class="tag" data-id="${esc(l.id)}">${icon('pin')}<button type="button" class="tname" data-act="rename" title="Tap to rename">${esc(l.name)}</button><button type="button" class="mb del" data-act="del" aria-label="Delete ${esc(l.name)}" title="Delete">${icon('x')}</button></span>`,
           )
           .join('')
-      : '<li class="empty">No locations yet.</li>';
+      : '<span class="muted">No locations yet.</span>';
   };
   $('#locs', root).onclick = (ev) => {
     const btn = ev.target.closest('button');
-    const li = ev.target.closest('li[data-id]');
+    const li = ev.target.closest('[data-id]');
     if (!btn || !li) return;
     const loc = locations.find((l) => l.id === li.dataset.id);
     if (btn.dataset.act === 'rename') {
@@ -133,49 +130,40 @@ export function settingsView(root, ctx) {
   const renderPeople = () => {
     const n = (t) => people.filter((p) => personKind(p.type) === t).length;
     $('#pplCounts', root).innerHTML = `
-      <span class="pill mem" title="OSG members">${icon('star')}<b>${n('osg')}</b> OSG members</span>
+      <span class="pill mem" title="OSG">${icon('star')}<b>${n('osg')}</b> OSG</span>
       <span class="pill vol" title="Community members">${icon('users')}<b>${n('community')}</b> community</span>`;
     const q = $('#peopleSearch', root).value.trim().toLowerCase();
     if (!q) {
-      $('#ppl', root).innerHTML = `<li class="empty">${
+      $('#ppl', root).innerHTML = `<span class="muted">${
         people.length ? `${people.length} saved. Search a name to find, edit or remove someone.` : 'No people saved yet.'
-      }</li>`;
+      }</span>`;
       return;
     }
     const rows = people.filter((p) => p.name.toLowerCase().includes(q));
     $('#ppl', root).innerHTML = rows.length
       ? rows
-          .map(
-            (p) => `<li data-id="${esc(p.id)}"><span class="nm">${esc(p.name)}</span>
-              <select class="input small" data-act="type" aria-label="Type for ${esc(p.name)}">
-                <option value="osg" ${personKind(p.type) === 'osg' ? 'selected' : ''}>OSG member</option>
-                <option value="community" ${personKind(p.type) === 'community' ? 'selected' : ''}>Community</option>
-              </select>
-              <button class="btn small" data-act="rename" aria-label="Rename ${esc(p.name)}">${icon('edit')}</button>
-              <button class="btn small danger" data-act="del" aria-label="Delete ${esc(p.name)}">${icon('trash')}</button></li>`,
-          )
+          .map((p) => {
+            const k = personKind(p.type);
+            return `<span class="tag ${k}" data-id="${esc(p.id)}"><button type="button" class="tname" data-act="rename" title="${k === 'osg' ? 'OSG' : 'Community'} · tap to rename">${esc(p.name)}</button><button type="button" class="mb" data-act="kind" aria-label="Switch ${esc(p.name)} to ${k === 'osg' ? 'Community' : 'OSG'}" title="Switch to ${k === 'osg' ? 'Community' : 'OSG'}">${icon('swap')}</button><button type="button" class="mb del" data-act="del" aria-label="Delete ${esc(p.name)}" title="Delete">${icon('x')}</button></span>`;
+          })
           .join('')
-      : '<li class="empty">No people found.</li>';
+      : '<span class="muted">No people found.</span>';
   };
   $('#peopleSearch', root).oninput = renderPeople;
   $('#ppl', root).onclick = (ev) => {
     const btn = ev.target.closest('button');
-    const li = ev.target.closest('li[data-id]');
+    const li = ev.target.closest('[data-id]');
     if (!btn || !li) return;
     const p = people.find((x) => x.id === li.dataset.id);
-    if (btn.dataset.act === 'rename') {
+    if (btn.dataset.act === 'kind') {
+      updatePerson(p.id, { type: personKind(p.type) === 'osg' ? 'community' : 'osg' }).catch(fail('Could not update.'));
+    } else if (btn.dataset.act === 'rename') {
       const name = prompt('Rename person', p.name);
       if (name && name.trim()) updatePerson(p.id, { name }).catch(fail('Could not rename.'));
     } else if (confirm(`Delete ${p.name}? Past events keep their attendance record.`)) {
       deletePerson(p.id).catch(fail('Could not delete.'));
     }
   };
-  $('#ppl', root).onchange = (ev) => {
-    const sel = ev.target.closest('select[data-act=type]');
-    const li = ev.target.closest('li[data-id]');
-    if (sel && li) updatePerson(li.dataset.id, { type: sel.value }).catch(fail('Could not update.'));
-  };
-
   /* ----- admin: invites & members ----- */
 
   if (ctx.isAdmin) {
@@ -221,19 +209,18 @@ export function settingsView(root, ctx) {
       $('#mems', root).innerHTML = members.length
         ? members
             .map(
-              (m) => `<li data-id="${esc(m.id)}">${icon('user')}<span class="nm">${esc(m.email || m.id)}</span>
-                ${
-                  m.id === ctx.user.uid
-                    ? '<small class="muted">you</small>'
-                    : `<button class="btn small danger" data-act="del">${icon('x')} Revoke</button>`
-                }</li>`,
+              (m) => `<span class="tag" data-id="${esc(m.id)}">${icon('user')}<span class="tname">${esc(m.email || m.id)}</span>${
+                m.id === ctx.user.uid
+                  ? '<small class="muted">you</small>'
+                  : `<button type="button" class="mb del" data-act="del" aria-label="Revoke access" title="Revoke access">${icon('x')}</button>`
+              }</span>`,
             )
             .join('')
-        : '<li class="empty">No staff.</li>';
+        : '<span class="muted">No staff.</span>';
     };
     $('#mems', root).onclick = (ev) => {
       const btn = ev.target.closest('button');
-      const li = ev.target.closest('li[data-id]');
+      const li = ev.target.closest('[data-id]');
       if (!btn || !li) return;
       if (confirm("Revoke this person's access?")) removeMember(li.dataset.id).catch(fail('Could not revoke.'));
     };
