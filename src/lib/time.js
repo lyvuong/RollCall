@@ -53,6 +53,11 @@ export function totalVolunteerHours(event) {
   return Number(event.volunteerHours) || 0;
 }
 
+/** Has recorded volunteer hours but nobody is marked as a volunteer yet. */
+export function needsVolunteers(event) {
+  return (Number(event.volunteerHours) || 0) > 0 && countRoles(event.attendees).volunteers === 0;
+}
+
 export function formatHours(h) {
   return `${Math.round(h * 100) / 100}`;
 }

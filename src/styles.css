@@ -206,6 +206,10 @@ textarea.input { resize: vertical; }
 .card.event:hover { transform: translateY(-1px); }
 .card.event.virtual { border-left-color: var(--sky-ink); }
 .card.event.in-person { border-left-color: var(--mint-ink); }
+.card.event.flag { box-shadow: 0 0 0 2px var(--peach-ink), var(--shadow); }
+.pill.warn { background: var(--peach-bg); color: var(--peach-ink); }
+.chip.fix[aria-pressed='true'] { background: var(--peach-bg); color: var(--peach-ink); border-color: var(--peach-ink); }
+.notice.warn { display: flex; gap: 8px; align-items: flex-start; background: var(--peach-bg); color: var(--peach-ink); margin-bottom: 12px; }
 .card.event.both { border-left-color: var(--peach-ink); }
 .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .meta { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: .9rem; margin-top: 6px; }

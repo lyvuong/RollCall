@@ -12,7 +12,7 @@ import {
 } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { ymd, eventHours, countRoles, totalVolunteerHours, personKind, roleOf, formatHours, formatTime } from '../lib/time.js';
+import { ymd, eventHours, countRoles, totalVolunteerHours, personKind, roleOf, needsVolunteers, formatHours, formatTime } from '../lib/time.js';
 
 const FORMAT_LABEL = { virtual: 'Virtual', 'in-person': 'In person', both: 'Hybrid' };
 const KIND_LABEL = { osg: 'OSG member', community: 'Community' };
@@ -292,6 +292,11 @@ export function eventView(root, _ctx, eventId) {
     const hours = eventHours(event.startTime, event.endTime);
     const { volunteers, participants } = countRoles(event.attendees);
     el.innerHTML = `
+      ${
+        needsVolunteers(event)
+          ? `<div class="notice warn">${icon('alert')} <span>${formatHours(event.volunteerHours)} volunteer hours were recorded for this event, but no volunteers are identified. Tap the role button next to each volunteer below.</span></div>`
+          : ''
+      }
       <div class="summary">
         <div class="stat" title="Hours per event">${icon('clock')}<span>${formatHours(hours)}</span>hrs<span class="wide"> / event</span></div>
         <div class="stat" title="Volunteers">${icon('heart')}<span>${volunteers}</span><span class="wide">volunteers</span><span class="narrow">vols</span></div>

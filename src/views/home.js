@@ -11,6 +11,7 @@ import {
   eventHours,
   countRoles,
   totalVolunteerHours,
+  needsVolunteers,
 } from '../lib/time.js';
 
 const FORMAT = {
@@ -36,6 +37,8 @@ const PRESETS = [
 
 // Remembered across navigation within the session.
 let range = null;
+let fixOnly = false; // only events that still need volunteers identified, across all dates
+const ALL = { from: '2000-01-01', to: '2099-12-31' };
 const defaultRange = () => PRESETS[0].get(ymd());
 
 export function homeView(root, _ctx) {
@@ -51,6 +54,7 @@ export function homeView(root, _ctx) {
     </section>
     <section class="card filter" aria-label="Date range">
       <div class="chips" id="chips"></div>
+      <div class="chips"><button type="button" class="chip fix" id="fix" aria-pressed="false">${icon('alert')} <span id="fixLbl">Needs volunteers</span></button></div>
       <div class="dates">
         <label class="field"><span class="lbl">${icon('calendar')} From</span>
           <input type="date" id="from" class="input" /></label>
@@ -84,12 +88,22 @@ export function homeView(root, _ctx) {
         </div>`;
       return;
     }
+    const shown = fixOnly ? events.filter(needsVolunteers) : events;
+    if (!shown.length) {
+      list.innerHTML = `<div class="card empty">${icon('check', 'lg')}<p>${
+        fixOnly ? 'No events need volunteers identified.' : 'No events in this range.'
+      }</p></div>`;
+      return;
+    }
     const days = new Map();
-    for (const e of events) {
+    for (const e of shown) {
       if (!days.has(e.date)) days.set(e.date, []);
       days.get(e.date).push(e);
     }
     const today = ymd();
+    const todo = events.filter(needsVolunteers).length;
+    $('#fixLbl', root).textContent = `Needs volunteers${todo ? ` (${todo})` : ''}`;
+    $('#fix', root).setAttribute('aria-pressed', String(fixOnly));
     list.innerHTML = [...days]
       .map(
         ([date, items]) => `
@@ -104,7 +118,7 @@ export function homeView(root, _ctx) {
     const loc = e.locationId ? locations[e.locationId] : '';
     const f = FORMAT[e.format] || FORMAT['in-person'];
     return `
-      <a class="card event ${esc(e.format)}" href="#/event/${esc(e.id)}">
+      <a class="card event ${esc(e.format)}${needsVolunteers(e) ? ' flag' : ''}" href="#/event/${esc(e.id)}">
         <div class="row">
           <strong>${esc(e.name)}</strong>
           <span class="badge ${esc(e.format)}" title="${f.label}">${icon(f.icon)}<span class="wide">${f.label}</span></span>
@@ -117,6 +131,7 @@ export function homeView(root, _ctx) {
           <span class="pill vol" title="Volunteers">${icon('heart')}<b>${volunteers}</b><span class="wide">volunteer${volunteers === 1 ? '' : 's'}</span></span>
           <span class="pill mem" title="Participants">${icon('users')}<b>${participants}</b><span class="wide">participant${participants === 1 ? '' : 's'}</span></span>
           <span class="pill hrs" title="Total volunteer hours">${icon('hourglass')}<b>${formatHours(totalVolunteerHours(e))}</b> hrs</span>
+          ${needsVolunteers(e) ? `<span class="pill warn" title="Recorded hours, but no volunteers identified">${icon('alert')}<span class="wide">Assign volunteers</span><span class="narrow">Fix</span></span>` : ''}
         </div>
       </a>`;
   }
@@ -124,17 +139,19 @@ export function homeView(root, _ctx) {
   function subscribe() {
     unsubEvents();
     syncInputs();
-    if (!range.from || !range.to || range.from > range.to) {
+    const r = fixOnly ? ALL : range;
+    if (!r.from || !r.to || r.from > r.to) {
       events = [];
       renderList();
       return;
     }
-    unsubEvents = watchEvents(range.from, range.to, (rows) => {
+    unsubEvents = watchEvents(r.from, r.to, (rows) => {
       events = rows;
       renderList();
     });
   }
 
+  $('#fix', root).onclick = () => ((fixOnly = !fixOnly), subscribe());
   from.onchange = () => ((range = { ...range, from: from.value }), subscribe());
   to.onchange = () => ((range = { ...range, to: to.value }), subscribe());
   $('#chips', root).onclick = (ev) => {
