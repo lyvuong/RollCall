@@ -29,12 +29,21 @@ service cloud.firestore {
       allow list: if isAdmin();
       allow create: if signedIn()
         && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['code', 'email', 'redeemedAt'])
+        && request.resource.data.keys().hasOnly(['code', 'email', 'name', 'redeemedAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80
         && request.resource.data.code is string
         && get(/databases/$(database)/documents/invites/$(request.resource.data.code))
              .data.expiresAt > request.time;
       allow delete: if isAdmin();
-      allow update: if false;
+      // A staff member may only set their own display name.
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80;
     }
 
     match /locations/{id} {

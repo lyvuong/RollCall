@@ -2,7 +2,7 @@ import './styles.css';
 import { registerSW } from 'virtual:pwa-register';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import { auth } from './firebase.js';
-import { getMembership, getIsAdmin, redeemInvite } from './data.js';
+import { getMember, getMembership, getIsAdmin, redeemInvite, setMyName } from './data.js';
 import { esc, $, toast } from './lib/dom.js';
 import { icon, logo } from './lib/icons.js';
 import { applyTheme, toggleTheme, effective } from './lib/theme.js';
@@ -67,7 +67,9 @@ function showJoin(user, error = '') {
     <h1>Enter invitation code</h1>
     <p class="muted">Signed in as ${esc(user.email)}. Ask an admin for a code.</p>
     ${error ? `<p class="error">${icon('alert')}${esc(error)}</p>` : ''}
-    <form id="join" class="form">
+ <form id="join" class="form">
+      <input id="yourName" class="input" autocomplete="name" maxlength="80" value="${esc(user.displayName || '')}"
+             placeholder="Your name (shown on event rosters)" aria-label="Your name" required />
       <input id="code" class="input code" autocomplete="off" autocapitalize="characters"
              maxlength="16" placeholder="CODE" aria-label="Invitation code" required />
       <button class="btn primary block" type="submit">${icon('key')} Join</button>
@@ -84,7 +86,7 @@ function showJoin(user, error = '') {
   $('#join').onsubmit = async (e) => {
     e.preventDefault();
     try {
-      await redeemInvite(user, $('#code').value);
+      await redeemInvite(user, $('#code').value, $('#yourName').value);
       await enter(user);
     } catch (err) {
       const denied = err.code === 'permission-denied';
@@ -93,9 +95,32 @@ function showJoin(user, error = '') {
   };
 }
 
+function showName(user) {
+  renderCard(`
+    ${logo(64)}
+    <h1>What's your name?</h1>
+    <p class="muted">Used to add you to event rosters as a volunteer.</p>
+    <form id="nameForm" class="form">
+      <input id="yourName" class="input" autocomplete="name" maxlength="80" value="${esc(user.displayName || '')}"
+             placeholder="Your name" aria-label="Your name" required />
+      <button class="btn primary block" type="submit">${icon('check')} Continue</button>
+    </form>`);
+  $('#nameForm').onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await setMyName(user.uid, $('#yourName').value);
+      await enter(user);
+    } catch {
+      toast('Could not save your name.');
+    }
+  };
+}
+
 async function enter(user) {
-  if (!(await getMembership(user.uid))) return showJoin(user);
-  ctx = { user, isAdmin: await getIsAdmin(user.uid) };
+  const member = await getMember(user.uid);
+  if (!member) return showJoin(user);
+  if (!member.name) return showName(user);
+  ctx = { user, name: member.name, isAdmin: await getIsAdmin(user.uid) };
   renderShell();
   route();
 }

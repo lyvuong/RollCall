@@ -81,7 +81,7 @@ export function settingsView(root, ctx) {
 
     <section class="card">
       <h2>${icon('user')} Account</h2>
-      <p class="muted">${esc(ctx.user.email)}${ctx.isAdmin ? ' · admin' : ''}</p>
+      <p class="muted">${esc(ctx.name || '')} · ${esc(ctx.user.email)}${ctx.isAdmin ? ' · admin' : ''}</p>
       <button class="btn" id="signout">${icon('logout')} Sign out</button>
       <p class="muted"><small>Version ${esc(__APP_VERSION__)}</small></p>
     </section>`;
@@ -209,7 +209,7 @@ export function settingsView(root, ctx) {
       $('#mems', root).innerHTML = members.length
         ? members
             .map(
-              (m) => `<span class="tag" data-id="${esc(m.id)}">${icon('user')}<span class="tname">${esc(m.email || m.id)}</span>${
+              (m) => `<span class="tag" data-id="${esc(m.id)}">${icon('user')}<span class="tname" title="${esc(m.email || '')}">${esc(m.name || m.email || m.id)}</span>${
                 m.id === ctx.user.uid
                   ? '<small class="muted">you</small>'
                   : `<button type="button" class="mb del" data-act="del" aria-label="Revoke access" title="Revoke access">${icon('x')}</button>`

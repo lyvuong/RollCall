@@ -7,13 +7,24 @@ const KIND = { osg: { label: 'OSG', icon: 'star' }, community: { label: 'Communi
 const MAX_RESULTS = 12;
 
 /** Participants editor: remove people from an event, or search saved people and add them. */
-export function participantsView(root, _ctx, eventId) {
+export function participantsView(root, ctx, eventId) {
   let event;
   let people = [];
   let q = '';
   const removed = new Set(); // staged removals, applied on Done
   const roleEdits = new Map(); // staged role changes (id -> role), applied on Done
   const effRole = (id, a) => roleEdits.get(id) || roleOf(a);
+  // The signed-in staff member is staged as a volunteer when they are not on the event yet.
+  let peopleLoaded = false;
+  let selfStaged = false;
+  let selfChecked = false;
+  const selfName = (ctx?.name || '').trim();
+  const selfPerson = () => people.find((x) => x.name.toLowerCase() === selfName.toLowerCase());
+  const selfId = () => selfPerson()?.id || '__self__';
+  const fullAtt = () => ({
+    ...(event?.attendees || {}),
+    ...(selfStaged ? { [selfId()]: { name: selfName, type: selfPerson()?.type || 'osg', role: 'volunteer' } } : {}),
+  });
   const unsubs = [];
 
   root.innerHTML = `
@@ -54,7 +65,12 @@ export function participantsView(root, _ctx, eventId) {
     $('#body', root).hidden = false;
     $('#title', root).textContent = event.name;
 
-    const att = event.attendees || {};
+    if (!selfChecked && peopleLoaded && selfName) {
+      selfChecked = true;
+      const there = Object.values(event.attendees || {}).some((a) => a.name.toLowerCase() === selfName.toLowerCase());
+      selfStaged = !there;
+    }
+    const att = fullAtt();
     const kept = Object.fromEntries(
       Object.entries(att)
         .filter(([id]) => !removed.has(id))
@@ -68,7 +84,7 @@ export function participantsView(root, _ctx, eventId) {
         ? `<s class="old">${formatHours(saved)}</s> <b>${formatHours(next)}</b> hrs`
         : `${formatHours(saved)} hrs`;
     $('#sub', root).innerHTML = `${esc(formatDay(event.date))} · ${icon('clock')} ${formatHours(eventHours(event.startTime, event.endTime))} hrs · ${icon('heart')} ${volunteers} · ${icon('users')} ${participants} · ${icon('hourglass')} ${hoursHtml}`;
-    const pending = removed.size + roleEdits.size;
+    const pending = removed.size + roleEdits.size + (selfStaged ? 1 : 0);
     $('#done', root).textContent = pending ? `Save ${pending} change${pending === 1 ? '' : 's'} & done` : 'Done';
     $('#listTitle', root).innerHTML = `${icon('users')} Participants (${Object.keys(att).length})`;
 
@@ -127,15 +143,26 @@ export function participantsView(root, _ctx, eventId) {
   $('#body', root).addEventListener('click', (ev) => {
     const t = ev.target.closest('button');
     if (!t || !event) return;
-    const att = event.attendees || {};
+    const att = fullAtt();
     if (t.dataset.del) {
       const id = t.dataset.del;
-      if (removed.has(id)) removed.delete(id);
+      if (selfStaged && id === selfId()) selfStaged = false;
+      else if (removed.has(id)) removed.delete(id);
       else removed.add(id);
       render();
     } else if (t.id === 'done') {
-      const jobs = [...removed].filter((id) => att[id]).map((id) => setAttendance(eventId, { id, ...att[id] }, false));
-      for (const [id, role] of roleEdits) if (att[id] && !removed.has(id)) jobs.push(setRole(eventId, id, role));
+      const saved = event.attendees || {};
+      const jobs = [...removed].filter((id) => saved[id]).map((id) => setAttendance(eventId, { id, ...saved[id] }, false));
+      for (const [id, role] of roleEdits) if (saved[id] && !removed.has(id)) jobs.push(setRole(eventId, id, role));
+      if (selfStaged) {
+        let me = selfPerson();
+        if (!me) {
+          const created = addPerson(selfName, 'osg');
+          created.done.catch(() => toast('Could not save person.'));
+          me = created.person;
+        }
+        jobs.push(setAttendance(eventId, me, true, roleEdits.get(selfId()) || 'volunteer'));
+      }
       removed.clear();
       roleEdits.clear();
       Promise.all(jobs).catch(fail);
@@ -143,7 +170,10 @@ export function participantsView(root, _ctx, eventId) {
     } else if (t.dataset.role) {
       const id = t.dataset.role;
       const next = effRole(id, att[id]) === 'volunteer' ? 'participant' : 'volunteer';
-      if (next === roleOf(att[id])) roleEdits.delete(id);
+      if (selfStaged && id === selfId()) {
+        if (next === 'volunteer') roleEdits.delete(id);
+        else roleEdits.set(id, next);
+      } else if (next === roleOf(att[id])) roleEdits.delete(id);
       else roleEdits.set(id, next);
       render();
     } else if (t.dataset.add) {
@@ -172,6 +202,7 @@ export function participantsView(root, _ctx, eventId) {
   unsubs.push(
     watchPeople((rows) => {
       people = rows;
+      peopleLoaded = true;
       render();
     }),
     watchEvent(eventId, (e) => {

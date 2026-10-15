@@ -44,6 +44,18 @@ export async function getMembership(uid) {
   }
 }
 
+/** The signed-in staff member's membership doc data, or null when not a member. */
+export async function getMember(uid) {
+  try {
+    const snap = await getDoc(doc(db, 'members', uid));
+    return snap.exists() ? snap.data() : null;
+  } catch {
+    return null;
+  }
+}
+
+export const setMyName = (uid, name) => updateDoc(doc(db, 'members', uid), { name: name.trim().replace(/\s+/g, ' ') });
+
 export async function getIsAdmin(uid) {
   try {
     return (await getDoc(doc(db, 'admins', uid))).exists();
@@ -53,10 +65,11 @@ export async function getIsAdmin(uid) {
 }
 
 /** Redeem an invitation code. Rules reject invalid or expired codes. */
-export async function redeemInvite(user, code) {
+export async function redeemInvite(user, code, name) {
   await setDoc(doc(db, 'members', user.uid), {
     code: code.trim().toUpperCase(),
     email: user.email || '',
+    name: name.trim().replace(/\s+/g, ' '),
     redeemedAt: serverTimestamp(),
   });
 }
