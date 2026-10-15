@@ -23,7 +23,7 @@ const FORMAT = {
 };
 
 const startOfWeek = (d) => addDays(d, -((new Date(d + 'T00:00').getDay() + 6) % 7));
-const PRESETS = [
+export const PRESETS = [
   { key: 'default', label: 'Yesterday–tomorrow', get: (t) => ({ from: addDays(t, -1), to: addDays(t, 1) }) },
   { key: 'week', label: 'This week', get: (t) => ({ from: startOfWeek(t), to: addDays(startOfWeek(t), 6) }) },
   {
@@ -54,7 +54,10 @@ export function homeView(root, _ctx) {
   root.innerHTML = `
     <section class="bar">
       <h1>${icon('calendar', 'lg')} Events</h1>
-      <a class="btn primary fab" href="#/event/new" aria-label="New event" title="New event">${icon('plus')}<span class="wide">New event</span></a>
+      <span class="bar-actions">
+        <a class="btn fab" id="report" href="#/report" aria-label="Report" title="Export events as CSV">${icon('download')}<span class="wide">Report</span></a>
+        <a class="btn primary fab" href="#/event/new" aria-label="New event" title="New event">${icon('plus')}<span class="wide">New event</span></a>
+      </span>
     </section>
     <section class="card filter" aria-label="Date range">
       <button type="button" class="ftoggle" id="fToggle" aria-expanded="false" aria-controls="fBody">
@@ -75,6 +78,11 @@ export function homeView(root, _ctx) {
 
   const from = $('#from', root);
   const to = $('#to', root);
+  // Carry the visible range into the report page.
+  $('#report', root).onclick = (ev) => {
+    ev.preventDefault();
+    location.hash = `#/report?from=${range.from}&to=${range.to}`;
+  };
 
   const short = (d) => new Date(d + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 

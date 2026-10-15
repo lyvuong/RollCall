@@ -83,6 +83,21 @@ export function watchEvents(from, to, cb) {
   );
 }
 
+/** One-shot read of events in an inclusive date range, sorted by date then start. */
+export async function fetchEventsInRange(from, to) {
+  const snap = await getDocs(
+    query(collection(db, 'events'), where('date', '>=', from), where('date', '<=', to), orderBy('date')),
+  );
+  return snap.docs
+    .map(withId)
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.startTime || '').localeCompare(b.startTime || ''));
+}
+
+export async function fetchLocations() {
+  const snap = await getDocs(collection(db, 'locations'));
+  return Object.fromEntries(snap.docs.map((d) => [d.id, d.data().name]));
+}
+
 export function watchEvent(id, cb) {
   return onSnapshot(doc(db, 'events', id), (snap) => cb(snap.exists() ? withId(snap) : null));
 }

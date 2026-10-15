@@ -242,6 +242,7 @@ textarea.input { resize: vertical; }
 .pill b { font-weight: 800; }
 .fab { position: static; flex: none; width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 12px; box-shadow: none; font-size: .92rem; }
 .fab .i { width: 20px; height: 20px; }
+.bar-actions { display: inline-flex; gap: 8px; flex: none; }
 @media (min-width: 521px) {
   .fab { width: auto; padding: 0 14px; }
   .fab .i { width: 18px; height: 18px; }

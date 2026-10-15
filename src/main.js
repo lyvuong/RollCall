@@ -12,6 +12,7 @@ import { participantsView } from './views/people.js';
 import { settingsView } from './views/settings.js';
 import { importView } from './views/import.js';
 import { aboutView } from './views/about.js';
+import { reportView } from './views/report.js';
 
 applyTheme();
 
@@ -194,6 +195,8 @@ function route() {
   } else if (hash === '/about') {
     nav = 'settings';
     cleanup = aboutView(view);
+  } else if (hash === '/report' || hash.startsWith('/report?')) {
+    cleanup = reportView(view, ctx);
   } else if (hash === '/import') {
     nav = 'settings';
     cleanup = importView(view, ctx);
