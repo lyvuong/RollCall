@@ -249,7 +249,6 @@ textarea.input { resize: vertical; }
   .fab { position: static; width: auto; height: auto; min-height: 40px; padding: 8px 14px; border-radius: 12px; box-shadow: none; font-size: .92rem; }
   .fab .i { width: 18px; height: 18px; }
 }
-}
 
 /* ---------- Event detail ---------- */
 .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
