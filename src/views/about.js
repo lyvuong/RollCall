@@ -46,12 +46,19 @@ export function aboutView(root) {
 
     <section class="card">
       <h2>${icon('user')} Developer</h2>
-      <p class="muted">Built for OSG staff and volunteers by <b>lyvuong</b>.</p>
+      <div class="dev">
+        <img class="avatar-lg" src="/avatar.png" alt="Ly Vuong" width="72" height="72" onerror="this.style.display='none'" />
+        <div>
+          <strong>Ly Vuong</strong>
+          <span class="muted">Creator &amp; Lead Engineer</span>
+        </div>
+      </div>
+      <p class="muted">Engineered with a focus on privacy, fast performance and a simple experience on phones, so OSG staff can take roll call quickly at events.</p>
       <div class="chips">
-        <a class="chip" href="${REPO}" target="_blank" rel="noopener noreferrer">${icon('file')} Source code</a>
+        <a class="chip" href="${REPO}" target="_blank" rel="noopener noreferrer">${icon('file')} GitHub repository</a>
         <a class="chip" href="${REPO}/issues" target="_blank" rel="noopener noreferrer">${icon('alert')} Report an issue</a>
       </div>
-      <p class="muted"><small>© ${new Date().getFullYear()} OSG. All rights reserved.</small></p>
+      <p class="muted"><small>© ${new Date().getFullYear()} Ly Vuong. All rights reserved.</small></p>
     </section>`;
   return () => {};
 }

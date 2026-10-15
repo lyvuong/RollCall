@@ -163,7 +163,7 @@ function renderShell() {
     </header>
     <div id="offline" class="offline" role="status" hidden>${icon('cloudOff')} Offline — changes will sync when you reconnect.</div>
     <main id="view"></main>
-    <footer class="site-foot"><a href="#/about">About</a> · v${esc(__APP_VERSION__)} · © ${new Date().getFullYear()} OSG. All rights reserved.</footer>
+    <footer class="site-foot"><a href="#/about">About</a> · v${esc(__APP_VERSION__)} · © ${new Date().getFullYear()} Ly Vuong. All rights reserved.</footer>
     <nav class="tabbar" aria-label="Main">${navHtml}</nav>`;
   $('#themeBtn').onclick = toggleTheme;
   themeButton();
