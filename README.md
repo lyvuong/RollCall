@@ -1,4 +1,4 @@
-# RollCall
+# OSG Activity Roll Call
 
 Offline-capable PWA for OSG staff to take roll call at events and track volunteer hours.
 Vanilla JS + Vite, Firebase Auth (Google) + Firestore for data, hosted on Cloudflare (Workers static assets).

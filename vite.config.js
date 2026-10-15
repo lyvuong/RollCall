@@ -26,8 +26,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon.svg'],
       manifest: {
-        name: 'RollCall',
-        short_name: 'RollCall',
+        name: 'OSG Activity Roll Call',
+        short_name: 'OSG Activity Roll Call',
         description: 'Event roll call for OSG staff',
         theme_color: '#6c4cff',
         background_color: '#f2f6ff',

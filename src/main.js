@@ -48,7 +48,7 @@ function renderCard(html) {
 function showLogin(error = '') {
   renderCard(`
     ${logo(72)}
-    <h1>RollCall</h1>
+    <h1>OSG Activity Roll Call</h1>
     <p class="muted">Roll call and volunteer hours for OSG events.</p>
     ${error ? `<p class="error">${icon('alert')}${esc(error)}</p>` : ''}
     <button class="btn primary block" id="signin">${icon('login')} Sign in with Google</button>`);
@@ -155,7 +155,7 @@ function themeButton() {
 function renderShell() {
   app.innerHTML = `
     <header class="appbar">
-      <a href="#/" class="brand">${logo(36)}<span>RollCall</span></a>
+      <a href="#/" class="brand">${logo(36)}<span class="wide">OSG Activity Roll Call</span></a>
       <nav class="topnav" aria-label="Main">${navHtml}</nav>
       <span class="spacer"></span>
       <button class="icon-btn" id="themeBtn" type="button"></button>

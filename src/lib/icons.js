@@ -47,7 +47,7 @@ export function icon(name, cls = '') {
 
 /** App logo: clipboard with check on a pastel gradient tile. */
 export function logo(size = 32) {
-  return `<svg class="logo" width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="RollCall logo">
+  return `<svg class="logo" width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="OSG Activity Roll Call logo">
     <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#c9bdff"/><stop offset="1" stop-color="#9fe3cf"/>
     </linearGradient></defs>
