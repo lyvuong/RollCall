@@ -1,7 +1,7 @@
 import { watchEvent, watchPeople, setAttendance, setRole, addPerson } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { countRoles, personKind, roleOf, formatDay, formatTime12, formatHours, totalVolunteerHours } from '../lib/time.js';
+import { countRoles, personKind, roleOf, formatDay, eventHours, formatHours, totalVolunteerHours } from '../lib/time.js';
 
 const KIND = { osg: { label: 'OSG', icon: 'star' }, community: { label: 'Community', icon: 'users' } };
 const MAX_RESULTS = 12;
@@ -54,7 +54,7 @@ export function participantsView(root, _ctx, eventId) {
 
     const att = event.attendees || {};
     const { volunteers, participants } = countRoles(att);
-    $('#sub', root).innerHTML = `${esc(formatDay(event.date))} · ${icon('clock')} ${event.startTime ? esc(formatTime12(event.startTime)) + (event.endTime ? '–' + esc(formatTime12(event.endTime)) : '') : ''} · ${icon('heart')} ${volunteers} · ${icon('users')} ${participants} · ${icon('hourglass')} ${formatHours(totalVolunteerHours(event))} hrs`;
+    $('#sub', root).innerHTML = `${esc(formatDay(event.date))} · ${icon('clock')} ${formatHours(eventHours(event.startTime, event.endTime))} hrs · ${icon('heart')} ${volunteers} · ${icon('users')} ${participants} · ${icon('hourglass')} ${formatHours(totalVolunteerHours(event))} hrs`;
     $('#done', root).textContent = removed.size ? `Remove ${removed.size} & done` : 'Done';
     $('#listTitle', root).innerHTML = `${icon('users')} Participants (${Object.keys(att).length})`;
 
