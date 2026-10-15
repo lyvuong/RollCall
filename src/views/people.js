@@ -30,7 +30,7 @@ export function participantsView(root, _ctx, eventId) {
       </section>
       <section class="card">
         <h2 id="listTitle">${icon('users')} Participants</h2>
-        <p class="muted tiny">Tap a name to toggle <b>volunteer</b> (heart). Tap × to remove.</p>
+        <p class="legend tiny"><span class="osg">OSG</span><span class="community">Community</span><span class="vol">♥ Volunteer</span><span class="muted">Tap a name to switch Participant ↔ Volunteer</span></p>
         <div id="current" class="inl"></div>
       </section>
     </div>`;
@@ -64,7 +64,7 @@ export function participantsView(root, _ctx, eventId) {
           .map((a, i) => {
             const vol = roleOf(a) === 'volunteer';
             const kind = personKind(a.type);
-            return `<span class="pn ${vol ? 'vol' : ''}"><button type="button" class="pname" data-role="${esc(a.id)}" aria-pressed="${vol}"
+            return `<span class="pn ${kind}${vol ? ' vol' : ''}"><button type="button" class="pname" data-role="${esc(a.id)}" aria-pressed="${vol}"
               title="${esc(KIND[kind].label)} · ${vol ? 'Volunteer (tap for Participant)' : 'Participant (tap for Volunteer)'}">${vol ? icon('heart') : ''}${esc(a.name)}</button><button type="button" class="xbtn" data-del="${esc(a.id)}" aria-label="Remove ${esc(a.name)}" title="Remove">${icon('x')}</button>${i < cur.length - 1 ? '<span class="sep">,</span>' : ''}</span>`;
           })
           .join(' ')
