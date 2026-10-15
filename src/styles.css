@@ -240,13 +240,10 @@ textarea.input { resize: vertical; }
 .narrow { display: none; }
 .counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
 .pill b { font-weight: 800; }
-.fab {
-  position: fixed; right: 16px; bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 9;
-  width: 48px; height: 48px; min-height: 0; padding: 0; border-radius: 999px; box-shadow: 0 4px 12px rgba(0, 0, 0, .18);
-}
-.fab .i { width: 22px; height: 22px; }
+.fab { position: static; flex: none; width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 12px; box-shadow: none; font-size: .92rem; }
+.fab .i { width: 20px; height: 20px; }
 @media (min-width: 521px) {
-  .fab { position: static; width: auto; height: auto; min-height: 40px; padding: 8px 14px; border-radius: 12px; box-shadow: none; font-size: .92rem; }
+  .fab { width: auto; padding: 0 14px; }
   .fab .i { width: 18px; height: 18px; }
 }
 
