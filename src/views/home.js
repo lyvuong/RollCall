@@ -107,6 +107,11 @@ export function homeView(root, _ctx) {
 
   function renderList() {
     const list = $('#list', root);
+    const todo = events.filter(needsVolunteers).length;
+    $('#fixLbl', root).textContent = `Needs volunteers${todo ? ` (${todo})` : ''}`;
+    $('#fix', root).setAttribute('aria-pressed', String(fixOnly));
+    // Nothing to fix in view: hide the chip (kept while the filter is on, so it can be switched off).
+    $('#fix', root).parentElement.hidden = !todo && !fixOnly;
     if (!events.length) {
       list.innerHTML = `
         <div class="card empty">${icon('calendar', 'lg')}
@@ -128,9 +133,6 @@ export function homeView(root, _ctx) {
       days.get(e.date).push(e);
     }
     const today = ymd();
-    const todo = events.filter(needsVolunteers).length;
-    $('#fixLbl', root).textContent = `Needs volunteers${todo ? ` (${todo})` : ''}`;
-    $('#fix', root).setAttribute('aria-pressed', String(fixOnly));
     list.innerHTML = [...days]
       .map(
         ([date, items]) => `

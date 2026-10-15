@@ -427,3 +427,4 @@ img, svg, video { max-width: 100%; }
 .ftoggle.open .fchev { transform: rotate(-90deg); }
 #fBody { display: grid; gap: 10px; padding: 4px 0 8px; }
 #fBody[hidden] { display: none; }
+.chips[hidden] { display: none; }
