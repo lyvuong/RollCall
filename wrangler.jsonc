@@ -1,13 +1,20 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "rollcall",
+  "main": "worker/index.js",
   "compatibility_date": "2026-10-01",
   // Build the app as part of `wrangler deploy`, so deploys work even when the
   // CI "Build command" field is left empty.
   "build": { "command": "npm run build" },
   // Static PWA served by Workers; unknown paths fall back to index.html (SPA).
+  // Only /api/* runs the Worker script (event photo API); everything else is plain assets.
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
-  }
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  // Public project id (same value as VITE_FIREBASE_PROJECT_ID). Tokens are checked against it.
+  "vars": { "FIREBASE_PROJECT_ID": "rollcall-e85e8" },
+  // Create once with: npx wrangler r2 bucket create rollcall-photos
+  "r2_buckets": [{ "binding": "PHOTOS", "bucket_name": "rollcall-photos" }]
 }

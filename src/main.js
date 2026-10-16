@@ -13,6 +13,7 @@ import { settingsView } from './views/settings.js';
 import { importView } from './views/import.js';
 import { aboutView } from './views/about.js';
 import { reportView } from './views/report.js';
+import { photosView } from './views/photos.js';
 
 applyTheme();
 
@@ -202,6 +203,8 @@ function route() {
     cleanup = importView(view, ctx);
   } else if (hash === '/event/new') {
     cleanup = eventView(view, ctx, null);
+  } else if ((m = hash.match(/^\/event\/([^/]+)\/photos$/))) {
+    cleanup = photosView(view, ctx, m[1]);
   } else if ((m = hash.match(/^\/event\/([^/]+)\/people$/))) {
     cleanup = participantsView(view, ctx, m[1]);
   } else if ((m = hash.match(/^\/event\/([^/]+)$/))) {

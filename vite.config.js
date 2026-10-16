@@ -20,10 +20,12 @@ function appVersion() {
 
 export default defineConfig({
   define: { __APP_VERSION__: JSON.stringify(appVersion()) },
-  test: { include: ['src/**/*.test.js'] },
+  test: { include: ['src/**/*.test.js', 'worker/**/*.test.js'] },
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
+      // /api/* is handled by the Worker, never by the SPA fallback.
+      workbox: { navigateFallbackDenylist: [/^\/api\//] },
       includeAssets: ['icons/favicon.png'],
       manifest: {
         name: 'OSG Activity Roll Call',

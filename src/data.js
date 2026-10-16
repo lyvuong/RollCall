@@ -93,6 +93,25 @@ export async function fetchEventsInRange(from, to) {
     .sort((a, b) => a.date.localeCompare(b.date) || (a.startTime || '').localeCompare(b.startTime || ''));
 }
 
+/* ---------- event photos (metadata only; files are in R2 via /api/photos) ---------- */
+
+export function watchPhotos(eventId, cb) {
+  const q = query(collection(db, 'events', eventId, 'photos'), orderBy('uploadedAt'));
+  return watchCollection(q, cb);
+}
+
+export function addPhotoDoc(eventId, photoId, { uploadedBy, uploadedByName, width, height }) {
+  return setDoc(doc(db, 'events', eventId, 'photos', photoId), {
+    uploadedBy,
+    uploadedByName,
+    width,
+    height,
+    uploadedAt: serverTimestamp(),
+  });
+}
+
+export const deletePhotoDoc = (eventId, photoId) => deleteDoc(doc(db, 'events', eventId, 'photos', photoId));
+
 export async function fetchLocations() {
   const snap = await getDocs(collection(db, 'locations'));
   return Object.fromEntries(snap.docs.map((d) => [d.id, d.data().name]));

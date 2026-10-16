@@ -174,7 +174,7 @@ export function homeView(root, _ctx) {
           ${needsVolunteers(e) ? `<span class="pill warn" title="Recorded hours, but no volunteers identified">${icon('alert')}<span class="wide">Assign volunteers</span></span>` : ''}
           ${
             e.date <= ymd()
-              ? `<a class="ibadge people" href="#/event/${esc(e.id)}/people" aria-label="Update participants of ${esc(e.name)}" title="Update participants">${icon('userEdit')}</a>`
+              ? `<a class="ibadge photos" href="#/event/${esc(e.id)}/photos" aria-label="Photos of ${esc(e.name)}" title="Photos">${icon('camera')}</a><a class="ibadge people" href="#/event/${esc(e.id)}/people" aria-label="Update participants of ${esc(e.name)}" title="Update participants">${icon('userEdit')}</a>`
               : ''
           }
         </div>

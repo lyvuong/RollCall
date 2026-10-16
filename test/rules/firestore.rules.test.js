@@ -5,7 +5,7 @@ import {
   assertSucceeds,
   assertFails,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore';
 
 let env;
 const future = () => Timestamp.fromMillis(Date.now() + 86_400_000);
@@ -99,5 +99,31 @@ describe('data access', () => {
       });
     }
     await assertSucceeds(batch.commit());
+  });
+});
+
+describe('event photos', () => {
+  const meta = (uid, extra = {}) => ({
+    uploadedBy: uid, uploadedByName: 'Pat', width: 800, height: 600, uploadedAt: Timestamp.now(), ...extra,
+  });
+
+  it('members can add, read and delete photo metadata', async () => {
+    const db = env.authenticatedContext('member1').firestore();
+    const ref = doc(db, 'events', 'e1', 'photos', 'p1');
+    await assertSucceeds(setDoc(ref, meta('member1')));
+    await assertSucceeds(getDoc(ref));
+    await assertSucceeds(deleteDoc(ref));
+  });
+
+  it('non-members are denied', async () => {
+    const db = env.authenticatedContext('stranger').firestore();
+    await assertFails(setDoc(doc(db, 'events', 'e1', 'photos', 'p1'), meta('stranger')));
+    await assertFails(getDoc(doc(db, 'events', 'e1', 'photos', 'p1')));
+  });
+
+  it('cannot claim another uploader or add extra fields', async () => {
+    const db = env.authenticatedContext('member1').firestore();
+    await assertFails(setDoc(doc(db, 'events', 'e1', 'photos', 'p1'), meta('someone-else')));
+    await assertFails(setDoc(doc(db, 'events', 'e1', 'photos', 'p2'), meta('member1', { url: 'http://x' })));
   });
 });
