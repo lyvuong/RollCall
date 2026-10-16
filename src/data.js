@@ -100,8 +100,12 @@ export function watchPhotos(eventId, cb) {
   return watchCollection(q, cb);
 }
 
+/** Photos are removed automatically this long after upload (R2 lifecycle rule + Firestore TTL on `expireAt`). */
+export const PHOTO_RETENTION_DAYS = 30;
+
 export function addPhotoDoc(eventId, photoId, { uploadedBy, uploadedByName, width, height }) {
   return setDoc(doc(db, 'events', eventId, 'photos', photoId), {
+    expireAt: Timestamp.fromMillis(Date.now() + PHOTO_RETENTION_DAYS * 86_400_000),
     uploadedBy,
     uploadedByName,
     width,

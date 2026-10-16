@@ -1,4 +1,4 @@
-import { watchEvent, watchPhotos, addPhotoDoc, deletePhotoDoc } from '../data.js';
+import { watchEvent, watchPhotos, addPhotoDoc, deletePhotoDoc, PHOTO_RETENTION_DAYS } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { formatDay } from '../lib/time.js';
@@ -25,6 +25,7 @@ export function photosView(root, ctx, eventId) {
         <input type="file" id="file" accept="image/*" multiple hidden />
       </label>
       <p class="muted" id="status" aria-live="polite"></p>
+      <p class="muted">Photos are deleted automatically ${PHOTO_RETENTION_DAYS} days after upload.</p>
     </section>
     <section id="grid" class="photo-grid" aria-live="polite"></section>
     <div id="lb" class="lightbox" hidden></div>`;

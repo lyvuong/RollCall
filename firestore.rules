@@ -72,8 +72,11 @@ service cloud.firestore {
       match /photos/{photoId} {
         allow read: if isMember();
         allow create: if isMember()
-          && request.resource.data.keys().hasOnly(['uploadedBy', 'uploadedByName', 'uploadedAt', 'width', 'height'])
-          && request.resource.data.uploadedBy == request.auth.uid;
+          && request.resource.data.keys().hasOnly(['uploadedBy', 'uploadedByName', 'uploadedAt', 'expireAt', 'width', 'height'])
+          && request.resource.data.uploadedBy == request.auth.uid
+          // Firestore TTL policy on `expireAt` deletes the doc; the client sets it ~30 days out.
+          && request.resource.data.expireAt is timestamp
+          && request.resource.data.expireAt <= request.time + duration.value(31, 'd');
         allow delete: if isMember();
       }
     }

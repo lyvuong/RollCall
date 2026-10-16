@@ -104,7 +104,8 @@ describe('data access', () => {
 
 describe('event photos', () => {
   const meta = (uid, extra = {}) => ({
-    uploadedBy: uid, uploadedByName: 'Pat', width: 800, height: 600, uploadedAt: Timestamp.now(), ...extra,
+    uploadedBy: uid, uploadedByName: 'Pat', width: 800, height: 600, uploadedAt: Timestamp.now(),
+    expireAt: Timestamp.fromMillis(Date.now() + 30 * 86_400_000), ...extra,
   });
 
   it('members can add, read and delete photo metadata', async () => {
@@ -119,6 +120,13 @@ describe('event photos', () => {
     const db = env.authenticatedContext('stranger').firestore();
     await assertFails(setDoc(doc(db, 'events', 'e1', 'photos', 'p1'), meta('stranger')));
     await assertFails(getDoc(doc(db, 'events', 'e1', 'photos', 'p1')));
+  });
+
+  it('expireAt must be a timestamp at most ~31 days out', async () => {
+    const db = env.authenticatedContext('member1').firestore();
+    const far = Timestamp.fromMillis(Date.now() + 90 * 86_400_000);
+    await assertFails(setDoc(doc(db, 'events', 'e1', 'photos', 'p1'), meta('member1', { expireAt: far })));
+    await assertFails(setDoc(doc(db, 'events', 'e1', 'photos', 'p2'), meta('member1', { expireAt: 'never' })));
   });
 
   it('cannot claim another uploader or add extra fields', async () => {
