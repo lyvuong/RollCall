@@ -11,6 +11,7 @@ import { eventView } from './views/event.js';
 import { participantsView } from './views/people.js';
 import { settingsView } from './views/settings.js';
 import { importView } from './views/import.js';
+import { neonView } from './views/neon.js';
 import { aboutView } from './views/about.js';
 import { reportView } from './views/report.js';
 import { photosView } from './views/photos.js';
@@ -201,6 +202,9 @@ function route() {
   } else if (hash === '/import') {
     nav = 'settings';
     cleanup = importView(view, ctx);
+  } else if (hash === '/neon') {
+    nav = 'settings';
+    cleanup = neonView(view, ctx);
   } else if (hash === '/event/new') {
     cleanup = eventView(view, ctx, null);
   } else if ((m = hash.match(/^\/event\/([^/]+)\/photos$/))) {
