@@ -1,5 +1,6 @@
 import {
   collection,
+  collectionGroup,
   doc,
   addDoc,
   getDoc,
@@ -98,6 +99,19 @@ export async function fetchEventsInRange(from, to) {
 export function watchPhotos(eventId, cb) {
   const q = query(collection(db, 'events', eventId, 'photos'), orderBy('uploadedAt'));
   return watchCollection(q, cb);
+}
+
+/** Every photo's metadata across all events, each with its `eventId`. Bounded: photos expire after 30 days. */
+export function watchAllPhotos(cb) {
+  return onSnapshot(
+    collectionGroup(db, 'photos'),
+    (snap) => {
+      const rows = snap.docs.map((d) => ({ id: d.id, eventId: d.ref.parent.parent.id, ...d.data() }));
+      const t = (r) => r.uploadedAt?.toMillis?.() ?? Number.MAX_SAFE_INTEGER; // pending writes sort last
+      cb(rows.sort((a, b) => t(a) - t(b)));
+    },
+    (err) => console.error('photos snapshot error', err),
+  );
 }
 
 /** Photos are removed automatically this long after upload (R2 lifecycle rule + Firestore TTL on `expireAt`). */

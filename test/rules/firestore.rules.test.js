@@ -5,7 +5,7 @@ import {
   assertSucceeds,
   assertFails,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, deleteDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore';
+import { collectionGroup, getDocs, doc, getDoc, setDoc, deleteDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore';
 
 let env;
 const future = () => Timestamp.fromMillis(Date.now() + 86_400_000);
@@ -114,6 +114,14 @@ describe('event photos', () => {
     await assertSucceeds(setDoc(ref, meta('member1')));
     await assertSucceeds(getDoc(ref));
     await assertSucceeds(deleteDoc(ref));
+  });
+
+  it('members can list photos across events; non-members cannot', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'events', 'e1', 'photos', 'p1'), meta('member1'));
+    });
+    await assertSucceeds(getDocs(collectionGroup(env.authenticatedContext('member1').firestore(), 'photos')));
+    await assertFails(getDocs(collectionGroup(env.authenticatedContext('stranger').firestore(), 'photos')));
   });
 
   it('non-members are denied', async () => {

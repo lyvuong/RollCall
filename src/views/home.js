@@ -1,4 +1,5 @@
-import { watchEvents, watchLocations } from '../data.js';
+import { watchEvents, watchLocations, watchAllPhotos } from '../data.js';
+import { photoUrl } from '../lib/photos.js';
 import { esc, $ } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import {
@@ -49,6 +50,7 @@ export function homeView(root, _ctx) {
   range ||= defaultRange();
   let events = [];
   let locations = {};
+  let photosByEvent = new Map(); // eventId -> photo metadata[]
   let unsubEvents = () => {};
 
   root.innerHTML = `
@@ -148,9 +150,36 @@ export function homeView(root, _ctx) {
         ${items.map(card).join('')}`,
       )
       .join('');
+    loadThumbs();
+  }
+
+  /** Fill the small photo previews of expanded cards (images need the auth header, so they load async). */
+  function loadThumbs() {
+    $('#list', root).querySelectorAll('img[data-eid]').forEach((img) => {
+      photoUrl(img.dataset.eid, img.dataset.pid, 'thumb').then(
+        (u) => (img.src = u),
+        () => img.closest('.tn')?.classList.add('broken'),
+      );
+    });
+  }
+
+  const THUMBS_SHOWN = 12;
+  function thumbsHtml(e, photos) {
+    if (!photos.length) return '';
+    const more = photos.length - THUMBS_SHOWN;
+    return `<div class="thumbs">
+      ${photos
+        .slice(0, THUMBS_SHOWN)
+        .map(
+          (p) => `<a class="tn" href="#/event/${esc(e.id)}/photos" aria-label="Open photos of ${esc(e.name)}"><img alt="" data-eid="${esc(e.id)}" data-pid="${esc(p.id)}" /></a>`,
+        )
+        .join('')}
+      ${more > 0 ? `<a class="tn more" href="#/event/${esc(e.id)}/photos">+${more}</a>` : ''}
+    </div>`;
   }
 
   function card(e) {
+    const photos = photosByEvent.get(e.id) || [];
     const { volunteers, participants } = countRoles(e.attendees);
     const loc = e.locationId ? locations[e.locationId] : '';
     const f = FORMAT[e.format] || FORMAT['in-person'];
@@ -174,11 +203,11 @@ export function homeView(root, _ctx) {
           ${needsVolunteers(e) ? `<span class="pill warn" title="Recorded hours, but no volunteers identified">${icon('alert')}<span class="wide">Assign volunteers</span></span>` : ''}
           ${
             e.date <= ymd()
-              ? `<a class="ibadge photos" href="#/event/${esc(e.id)}/photos" aria-label="Photos of ${esc(e.name)}" title="Photos">${icon('camera')}</a><a class="ibadge people" href="#/event/${esc(e.id)}/people" aria-label="Update participants of ${esc(e.name)}" title="Update participants">${icon('userEdit')}</a>`
+              ? `<a class="ibadge photos${photos.length ? ' has-count' : ''}" href="#/event/${esc(e.id)}/photos" aria-label="${photos.length} photo${photos.length === 1 ? '' : 's'} of ${esc(e.name)}" title="Photos">${icon('camera')}${photos.length ? `<b>${photos.length}</b>` : ''}</a><a class="ibadge people" href="#/event/${esc(e.id)}/people" aria-label="Update participants of ${esc(e.name)}" title="Update participants">${icon('userEdit')}</a>`
               : ''
           }
         </div>
-        ${open.has(e.id) ? `<div class="who">${whoHtml(e)}</div>` : ''}
+        ${open.has(e.id) ? `<div class="who">${whoHtml(e)}${thumbsHtml(e, photos)}</div>` : ''}
       </article>`;
   }
 
@@ -233,10 +262,19 @@ export function homeView(root, _ctx) {
     locations = Object.fromEntries(rows.map((l) => [l.id, l.name]));
     renderList();
   });
+  const unsubPhotos = watchAllPhotos((rows) => {
+    photosByEvent = new Map();
+    for (const p of rows) {
+      if (!photosByEvent.has(p.eventId)) photosByEvent.set(p.eventId, []);
+      photosByEvent.get(p.eventId).push(p);
+    }
+    renderList();
+  });
   subscribe();
 
   return () => {
     unsubEvents();
     unsubLoc();
+    unsubPhotos();
   };
 }

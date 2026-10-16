@@ -60,6 +60,11 @@ service cloud.firestore {
       allow delete: if isMember();
     }
 
+    // Collection-group reads of photo metadata (event list counts and thumbnails).
+    match /{path=**}/photos/{photoId} {
+      allow read: if isMember();
+    }
+
     match /events/{id} {
       allow read: if isMember();
       allow create, update: if isMember()
