@@ -10,8 +10,8 @@
     "test": "vitest run",
     "test:rules": "firebase emulators:exec --only firestore \"vitest run --config vitest.rules.config.js\"",
     "emulators": "firebase emulators:start --only auth,firestore --project demo-rollcall",
-    "deploy": "vite build && wrangler pages deploy dist",
-    "cf:preview": "vite build && wrangler pages dev dist",
+    "deploy": "vite build && wrangler pages deploy dist --project-name rollcall",
+    "cf:preview": "vite build && wrangler pages dev dist --r2 PHOTOS --binding FIREBASE_PROJECT_ID=rollcall-e85e8",
     "local": "node scripts/local.mjs"
   },
   "dependencies": {
