@@ -2,9 +2,11 @@
 //   GET  /api/neon/status                       connection check
 //   GET  /api/neon/events?from=YYYY-MM-DD&to=   events in a date range (normalized)
 //   GET  /api/neon/events/:id/registrations     registrations for one event
+//   GET  /api/neon/events/:id/attendees         attendees with markedAttended (check-in) state
 //   POST /api/neon/accounts/search              {name?, email?} -> candidate accounts
 // The API key lives in env.NEON_API_KEY and never reaches the browser.
-// NOTE: search field / output field names are unverified against a live org (see plan, Phase 0).
+// Event field names and pagination (currentPage) were verified against a live org; account search
+// field names ("First Name", "Last Name", "Email", "Account ID", "Email 1") still need checking.
 
 const DEFAULT_BASE = 'https://api.neoncrm.com/v2';
 const DEFAULT_VERSION = '2.11';
@@ -18,6 +20,7 @@ export const EVENT_FIELDS = {
   end: 'Event End Date',
   startTime: 'Event Start Time',
   endTime: 'Event End Time',
+  location: 'Event Location Name',
 };
 
 const json = (body, status = 200) =>
@@ -71,13 +74,38 @@ async function searchAll(env, path, body, map) {
   return out;
 }
 
+/** GET list endpoint that pages with currentPage (Neon fixes the page size at 20 here). */
+async function listAll(env, path, key) {
+  const out = [];
+  for (let page = 0; page < MAX_PAGES * 5; page++) {
+    const data = await neonFetch(env, `${path}?currentPage=${page}`);
+    out.push(...(data?.[key] || []));
+    if (page + 1 >= (data?.pagination?.totalPages ?? 1)) break;
+  }
+  return out;
+}
+
+// Neon sends times as "17:30:00" (sometimes "19:00:01"); the app uses "HH:MM".
+const hm = (t) => String(t || '').slice(0, 5);
+
 const normalizeEvent = (r) => ({
   neonEventId: String(r[EVENT_FIELDS.id]),
   name: r[EVENT_FIELDS.name] || '',
   date: String(r[EVENT_FIELDS.start] || '').slice(0, 10),
   endDate: String(r[EVENT_FIELDS.end] || '').slice(0, 10),
-  startTime: r[EVENT_FIELDS.startTime] || '',
-  endTime: r[EVENT_FIELDS.endTime] || '',
+  startTime: hm(r[EVENT_FIELDS.startTime]),
+  endTime: hm(r[EVENT_FIELDS.endTime]),
+  location: String(r[EVENT_FIELDS.location] || '').trim(),
+});
+
+const normalizeAttendee = (a) => ({
+  attendeeId: String(a.attendeeId),
+  accountId: a.accountId == null ? '' : String(a.accountId),
+  registrationId: a.registrationId == null ? '' : String(a.registrationId),
+  name: [a.firstName, a.lastName].filter(Boolean).join(' '),
+  email: a.email || '',
+  status: a.registrationStatus || '',
+  markedAttended: a.markedAttended === true,
 });
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -112,8 +140,13 @@ export async function handleNeon(request, url, env) {
 
   const reg = /^\/api\/neon\/events\/(\d{1,12})\/registrations$/.exec(pathname);
   if (reg && method === 'GET') {
-    const data = await neonFetch(env, `/events/${reg[1]}/eventRegistrations?pageSize=${PAGE_SIZE}`);
-    return json({ registrations: data?.eventRegistrations || [] });
+    return json({ registrations: await listAll(env, `/events/${reg[1]}/eventRegistrations`, 'eventRegistrations') });
+  }
+
+  const att = /^\/api\/neon\/events\/(\d{1,12})\/attendees$/.exec(pathname);
+  if (att && method === 'GET') {
+    const attendees = await listAll(env, `/events/${att[1]}/attendees`, 'attendees');
+    return json({ attendees: attendees.map(normalizeAttendee) });
   }
 
   if (pathname === '/api/neon/accounts/search' && method === 'POST') {

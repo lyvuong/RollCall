@@ -54,6 +54,7 @@ export function neonView(root, ctx) {
       <div class="stats">
         <span class="pill">${icon('check')}<b>${s.created}</b> new</span>
         <span class="pill">${icon('swap')}<b>${s.linked}</b> linked to existing</span>
+        ${s.newLocations ? `<span class="pill">${icon('pin')}<b>${s.newLocations}</b> new locations</span>` : ''}
         <span class="pill">${icon('copy')}<b>${s.skipped}</b> skipped</span>
         <span class="pill">${icon('alert')}<b>${s.errors}</b> with errors</span>
       </div>
@@ -107,7 +108,7 @@ export function neonView(root, ctx) {
         neonApi(`events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
         loadExisting(),
       ]);
-      plan = planNeonEvents(events, existing.events, newId);
+      plan = planNeonEvents(events, existing, newId);
       render();
     } catch (e) {
       const msg =

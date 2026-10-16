@@ -83,6 +83,52 @@ describe('events', () => {
   });
 });
 
+describe('event times and location', () => {
+  it('trims Neon times to HH:MM and passes the location through', async () => {
+    mockFetch(() =>
+      ok({
+        pagination: { totalPages: 1 },
+        searchResults: [
+          {
+            'Event ID': '5',
+            'Event Name': 'Dinner',
+            'Event Start Date': '2026-10-14',
+            'Event Start Time': '17:30:01',
+            'Event End Time': '19:00:00',
+            'Event Location Name': ' Lost Dog Cafe ',
+          },
+        ],
+      }),
+    );
+    const { events } = await (await call('/api/neon/events?from=2026-10-01&to=2026-10-31')).json();
+    expect(events[0]).toMatchObject({ startTime: '17:30', endTime: '19:00', location: 'Lost Dog Cafe' });
+  });
+});
+
+describe('attendees', () => {
+  it('pages through attendees and normalizes them', async () => {
+    mockFetch((url) => {
+      const page = Number(/currentPage=(\d+)/.exec(url)[1]);
+      return ok({
+        pagination: { totalPages: 2 },
+        attendees: [
+          { attendeeId: 10 + page, accountId: 100 + page, registrationId: 7, firstName: 'Ada', lastName: 'Lovelace', registrationStatus: 'SUCCEEDED', markedAttended: page === 0 },
+        ],
+      });
+    });
+    const res = await call('/api/neon/events/42/attendees');
+    const { attendees } = await res.json();
+    expect(attendees).toEqual([
+      { attendeeId: '10', accountId: '100', registrationId: '7', name: 'Ada Lovelace', email: '', status: 'SUCCEEDED', markedAttended: true },
+      { attendeeId: '11', accountId: '101', registrationId: '7', name: 'Ada Lovelace', email: '', status: 'SUCCEEDED', markedAttended: false },
+    ]);
+    expect(neonCalls.map((c) => c.url)).toEqual([
+      'https://api.neoncrm.com/v2/events/42/attendees?currentPage=0',
+      'https://api.neoncrm.com/v2/events/42/attendees?currentPage=1',
+    ]);
+  });
+});
+
 describe('registrations and accounts', () => {
   it('only accepts numeric event ids', async () => {
     expect((await call('/api/neon/events/abc/registrations')).status).toBe(404);

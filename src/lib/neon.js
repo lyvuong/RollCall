@@ -7,8 +7,8 @@ const DEFAULT_START = '09:00';
 
 /**
  * Build a write plan from events returned by /api/neon/events.
- * neonEvents = [{neonEventId, name, date, startTime, endTime}]
- * existing   = [{id, name, date, startTime, neonEventId?}]
+ * neonEvents = [{neonEventId, name, date, startTime, endTime, location?}]
+ * existing   = { events:[{id, name, date, startTime, neonEventId?}], locations:[{id, name}] }
  * newId(collection) -> string (keeps the plan pure and testable).
  *
  * Matching: neonEventId first, then name|date|startTime. A match only gets its
@@ -16,12 +16,25 @@ const DEFAULT_START = '09:00';
  * Returns { rows:[{status,message,label}], ops:[{col,id,data,merge?}], stats }.
  */
 export function planNeonEvents(neonEvents, existing, newId) {
-  const byNeon = new Map(existing.filter((e) => e.neonEventId).map((e) => [String(e.neonEventId), e]));
-  const byKey = new Map(existing.map((e) => [`${lower(e.name)}|${e.date}|${e.startTime}`, e]));
+  const byNeon = new Map(existing.events.filter((e) => e.neonEventId).map((e) => [String(e.neonEventId), e]));
+  const byKey = new Map(existing.events.map((e) => [`${lower(e.name)}|${e.date}|${e.startTime}`, e]));
+  const locByName = new Map((existing.locations || []).map((l) => [lower(l.name), l]));
+  const locationFor = (raw) => {
+    const name = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!name) return null;
+    let loc = locByName.get(lower(name));
+    if (!loc) {
+      loc = { id: newId('locations'), name };
+      locByName.set(lower(name), loc);
+      ops.push({ col: 'locations', id: loc.id, data: { name } });
+      stats.newLocations++;
+    }
+    return loc.id;
+  };
   const seen = new Set();
   const rows = [];
   const ops = [];
-  const stats = { created: 0, linked: 0, skipped: 0, errors: 0 };
+  const stats = { created: 0, linked: 0, skipped: 0, errors: 0, newLocations: 0 };
   const row = (status, message, label) => {
     rows.push({ status, message, label });
     if (status === 'ok') return;
@@ -59,7 +72,7 @@ export function planNeonEvents(neonEvents, existing, newId) {
     ops.push({
       col: 'events',
       id: newId('events'),
-      data: { name, description: '', date, startTime: start, endTime: end, format: 'in-person', locationId: null, attendees: {}, neonEventId: id },
+      data: { name, description: '', date, startTime: start, endTime: end, format: 'in-person', locationId: locationFor(n.location), attendees: {}, neonEventId: id },
     });
     stats.created++;
     row('ok', 'new event', label);
