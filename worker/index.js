@@ -1,4 +1,4 @@
-// Photo API for event photos, backed by R2. Everything else is served as static assets.
+// Photo API for event photos, backed by R2 (mounted by functions/api/[[path]].js on Pages).
 //   PUT    /api/photos/:eventId/:photoId?v=full|thumb   body = image/jpeg
 //   GET    /api/photos/:eventId/:photoId?v=full|thumb
 //   DELETE /api/photos/:eventId/:photoId                (removes both variants)
