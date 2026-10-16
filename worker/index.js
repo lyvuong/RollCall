@@ -4,6 +4,7 @@
 //   DELETE /api/photos/:eventId/:photoId                (removes both variants)
 // Caller must hold a valid Firebase ID token and be a member (members/{uid} readable).
 import { verifyIdToken, JWKS_URL } from './auth.js';
+import { handleNeon, NeonError } from './neon.js';
 
 const LIMITS = { full: 6 * 1024 * 1024, thumb: 1024 * 1024 };
 const ROUTE = /^\/api\/photos\/([\w-]{1,64})\/([\w-]{1,64})$/;
@@ -37,9 +38,9 @@ const keyFor = (eventId, photoId, variant) => `events/${eventId}/${photoId}/${va
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const isNeon = url.pathname.startsWith('/api/neon/');
     const m = ROUTE.exec(url.pathname);
-    if (!m) return json({ error: 'not found' }, 404);
-    const [, eventId, photoId] = m;
+    if (!m && !isNeon) return json({ error: 'not found' }, 404);
 
     const token = /^Bearer (.+)$/.exec(request.headers.get('Authorization') || '')?.[1];
     if (!token) return json({ error: 'missing token' }, 401);
@@ -50,6 +51,16 @@ export default {
       return json({ error: e.message }, 401);
     }
     if (!(await isMember(claims.sub, token, env.FIREBASE_PROJECT_ID))) return json({ error: 'not a member' }, 403);
+
+    if (isNeon) {
+      try {
+        return await handleNeon(request, url, env);
+      } catch (e) {
+        if (e instanceof NeonError) return json({ error: e.message }, e.status);
+        throw e;
+      }
+    }
+    const [, eventId, photoId] = m;
 
     const variant = url.searchParams.get('v') === 'thumb' ? 'thumb' : 'full';
 
