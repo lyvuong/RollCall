@@ -112,3 +112,20 @@ export function inactivePeople(people, stats, sinceDate = null) {
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/** Pairs marked as different people, each once, skipping ids that no longer exist. Sorted by name. */
+export function ignoredPairs(people) {
+  const byId = new Map(people.map((p) => [p.id, p]));
+  const seen = new Set();
+  const out = [];
+  for (const a of people) {
+    for (const id of a.notSame || []) {
+      const b = byId.get(id);
+      const key = [a.id, id].sort().join('|');
+      if (!b || seen.has(key)) continue;
+      seen.add(key);
+      out.push([a, b].sort((x, y) => x.name.localeCompare(y.name)));
+    }
+  }
+  return out.sort((x, y) => x[0].name.localeCompare(y[0].name) || x[1].name.localeCompare(y[1].name));
+}

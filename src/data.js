@@ -12,6 +12,7 @@ import {
   deleteDoc,
   deleteField,
   arrayUnion,
+  arrayRemove,
   onSnapshot,
   query,
   where,
@@ -198,6 +199,14 @@ export function markNotSame(person, others) {
   const batch = writeBatch(db);
   batch.update(doc(db, 'people', person.id), { notSame: arrayUnion(...others.map((o) => o.id)) });
   for (const o of others) batch.update(doc(db, 'people', o.id), { notSame: arrayUnion(person.id) });
+  return batch.commit();
+}
+
+/** Undo markNotSame for one pair, so the review may suggest them again. */
+export function clearNotSame(a, b) {
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'people', a.id), { notSame: arrayRemove(b.id) });
+  batch.update(doc(db, 'people', b.id), { notSame: arrayRemove(a.id) });
   return batch.commit();
 }
 

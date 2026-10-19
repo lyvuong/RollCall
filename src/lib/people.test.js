@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeName, editDistance, findDuplicateGroups, attendanceStats, inactivePeople } from './people.js';
+import { normalizeName, editDistance, findDuplicateGroups, attendanceStats, inactivePeople, ignoredPairs } from './people.js';
 
 const P = (id, name) => ({ id, name });
 const names = (groups) => groups.map((g) => g.map((p) => p.name).sort());
@@ -59,6 +59,17 @@ describe('marked distinct', () => {
       { id: 3, name: 'Marty  Sullivan', notSame: [2] },
     ]);
     expect(names(g)).toEqual([['Marty  Sullivan', 'Marty Sullivan'].sort()]);
+  });
+});
+
+describe('ignoredPairs', () => {
+  it('lists each marked pair once, even when marked on both sides, and drops deleted people', () => {
+    const people = [
+      { id: 1, name: 'Marty Sullivan', notSame: [2, 99] },
+      { id: 2, name: 'Mary Sullivan', notSame: [1] },
+      { id: 3, name: 'Bob' },
+    ];
+    expect(ignoredPairs(people).map((p) => p.map((x) => x.name))).toEqual([['Marty Sullivan', 'Mary Sullivan']]);
   });
 });
 

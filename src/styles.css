@@ -527,3 +527,8 @@ label.btn.disabled { opacity: .6; pointer-events: none; }
 .rev-group li { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 2px 0; }
 .rev-group li .btn.small { padding: 2px 8px; font-size: .75rem; }
 .rev-top { justify-content: flex-end; }
+.rev-ignored { margin-top: 10px; }
+.rev-ignored summary { cursor: pointer; }
+.rev-ignored ul { list-style: none; margin: 6px 0 0; padding: 0; }
+.rev-ignored li { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 3px 0; }
+.rev-ignored .btn.small { padding: 2px 8px; font-size: .75rem; }

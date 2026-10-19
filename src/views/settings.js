@@ -16,12 +16,13 @@ import {
   removeMember,
   loadExisting,
   markNotSame,
+  clearNotSame,
 } from '../data.js';
 import { esc, $, toast, randomCode } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { ymd, addDays, personKind } from '../lib/time.js';
 import { getPref, setPref } from '../lib/theme.js';
-import { findDuplicateGroups, attendanceStats, inactivePeople } from '../lib/people.js';
+import { findDuplicateGroups, attendanceStats, inactivePeople, ignoredPairs } from '../lib/people.js';
 
 const fail = (msg) => () => toast(msg);
 
@@ -242,6 +243,7 @@ export function settingsView(root, ctx) {
 
     const renderReview = (since) => {
       const groups = findDuplicateGroups(people);
+      const ignored = ignoredPairs(people);
       const cutoff = since ? addDays(ymd(), -Number(since)) : null;
       const idle = inactivePeople(people, stats, cutoff);
       for (const id of pending) if (!idle.some((p) => p.id === id)) pending.delete(id);
@@ -262,6 +264,17 @@ export function settingsView(root, ctx) {
                 )
                 .join('')
             : '<p class="muted">No look-alike names found.</p>'
+        }
+        ${
+          ignored.length
+            ? `<details class="rev-ignored"><summary>Marked as different people <small class="muted">(${ignored.length})</small></summary>
+          <ul>${ignored
+            .map(
+              ([a, b], i) => `<li>${esc(a.name)} <span class="muted">and</span> ${esc(b.name)}
+              <button type="button" class="btn small ghost" data-undo="${i}">${icon('swap')} Undo</button></li>`,
+            )
+            .join('')}</ul></details>`
+            : ''
         }
         <h3>Not attending</h3>
         <label class="field"><span class="lbl">Show people who have</span>
@@ -313,6 +326,19 @@ export function settingsView(root, ctx) {
             toast(`${person.name} marked as a different person`);
           } catch {
             toast('Could not save that. Try again.');
+          }
+          renderReview(since);
+        };
+      });
+      $('#revOut', root).querySelectorAll('[data-undo]').forEach((b) => {
+        b.onclick = async () => {
+          const [x, y] = ignored[Number(b.dataset.undo)];
+          b.disabled = true;
+          try {
+            await clearNotSame(x, y);
+            toast(`${x.name} and ${y.name} may be suggested again`);
+          } catch {
+            toast('Could not undo that. Try again.');
           }
           renderReview(since);
         };
