@@ -11,6 +11,7 @@ import {
   updateDoc,
   deleteDoc,
   deleteField,
+  arrayUnion,
   onSnapshot,
   query,
   where,
@@ -187,6 +188,17 @@ export function updatePerson(id, { name, type }) {
   if (name !== undefined) Object.assign(data, { name: name.trim(), nameLower: name.trim().toLowerCase() });
   if (type !== undefined) data.type = type;
   return updateDoc(doc(db, 'people', id), data);
+}
+
+/**
+ * Remember that `person` is not the same human as each of `others` (names that merely look alike),
+ * so the duplicate review stops suggesting them. Stored on both docs as `notSame` (person ids).
+ */
+export function markNotSame(person, others) {
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'people', person.id), { notSame: arrayUnion(...others.map((o) => o.id)) });
+  for (const o of others) batch.update(doc(db, 'people', o.id), { notSame: arrayUnion(person.id) });
+  return batch.commit();
 }
 
 export function deletePerson(id) {

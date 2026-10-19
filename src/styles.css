@@ -523,3 +523,7 @@ label.btn.disabled { opacity: .6; pointer-events: none; }
 .rev-list li { padding: 4px 0; }
 .rev-list label { display: flex; align-items: center; gap: 8px; }
 .review .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+.rev-group li { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 2px 0; }
+.rev-group li .btn.small { padding: 2px 8px; font-size: .75rem; }
+.rev-top { justify-content: flex-end; }

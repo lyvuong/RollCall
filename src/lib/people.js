@@ -41,8 +41,12 @@ function similar(a, b) {
   return editDistance(a.norm, b.norm, min >= 12 ? 2 : 1) <= (min >= 12 ? 2 : 1);
 }
 
+/** True when either person was marked as a different human from the other (`notSame` holds ids). */
+export const markedDistinct = (a, b) => !!(a.notSame?.includes(b.id) || b.notSame?.includes(a.id));
+
 /**
- * Groups of people whose names look like the same person. people = [{id, name, ...}].
+ * Groups of people whose names look like the same person. people = [{id, name, notSame?, ...}].
+ * Pairs marked distinct (see markedDistinct) are never linked directly.
  * Returns [[person, person, ...], ...], each group sorted by name, groups sorted by first name.
  */
 export function findDuplicateGroups(people) {
@@ -56,7 +60,7 @@ export function findDuplicateGroups(people) {
   const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
   for (let x = 0; x < items.length; x++) {
     for (let y = x + 1; y < items.length; y++) {
-      if (similar(items[x], items[y])) parent[find(x)] = find(y);
+      if (!markedDistinct(items[x].p, items[y].p) && similar(items[x], items[y])) parent[find(x)] = find(y);
     }
   }
   const groups = new Map();

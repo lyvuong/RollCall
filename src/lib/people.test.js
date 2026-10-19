@@ -43,6 +43,25 @@ describe('findDuplicateGroups', () => {
   });
 });
 
+describe('marked distinct', () => {
+  it('stops suggesting a pair marked as different people, from either side', () => {
+    const marty = { id: 1, name: 'Marty Sullivan', notSame: [2] };
+    const mary = { id: 2, name: 'Mary Sullivan' };
+    expect(findDuplicateGroups([P(1, 'Marty Sullivan'), P(2, 'Mary Sullivan')])).toHaveLength(1);
+    expect(findDuplicateGroups([marty, mary])).toEqual([]);
+    expect(findDuplicateGroups([{ id: 1, name: 'Marty Sullivan' }, { id: 2, name: 'Mary Sullivan', notSame: [1] }])).toEqual([]);
+  });
+
+  it('still groups the genuine duplicates once the odd one out is marked', () => {
+    const g = findDuplicateGroups([
+      { id: 1, name: 'Marty Sullivan', notSame: [2] },
+      { id: 2, name: 'Mary Sullivan' },
+      { id: 3, name: 'Marty  Sullivan', notSame: [2] },
+    ]);
+    expect(names(g)).toEqual([['Marty  Sullivan', 'Marty Sullivan'].sort()]);
+  });
+});
+
 describe('attendance', () => {
   const events = [
     { date: '2026-01-10', attendees: { a: {}, b: {} } },

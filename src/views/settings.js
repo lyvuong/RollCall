@@ -15,6 +15,7 @@ import {
   watchMembers,
   removeMember,
   loadExisting,
+  markNotSame,
 } from '../data.js';
 import { esc, $, toast, randomCode } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
@@ -245,13 +246,18 @@ export function settingsView(root, ctx) {
       const idle = inactivePeople(people, stats, cutoff);
       for (const id of pending) if (!idle.some((p) => p.id === id)) pending.delete(id);
       $('#revOut', root).innerHTML = `
+        <div class="actions rev-top"><button type="button" class="btn ghost small" data-close>${icon('x')} Close review</button></div>
         <h3>Possible duplicates <small class="muted">(${groups.length})</small></h3>
         ${
           groups.length
             ? groups
                 .map(
                   (g, i) => `<div class="rev-group">
-              <ul>${g.map((p) => `<li>${label(p)}</li>`).join('')}</ul>
+              <ul>${g
+                .map(
+                  (p) => `<li>${label(p)} <button type="button" class="btn small ghost" data-distinct="${esc(p.id)}" data-group="${i}" title="Mark ${esc(p.name)} as a different person from the others in this group">${icon('x')} Different person</button></li>`,
+                )
+                .join('')}</ul>
               <button type="button" class="btn small" data-merge="${i}">${icon('users')} Select to merge</button></div>`,
                 )
                 .join('')
@@ -278,8 +284,16 @@ export function settingsView(root, ctx) {
             <button type="button" class="btn danger" id="revDelete" ${pending.size ? '' : 'disabled'}>${icon('trash')} Delete ${pending.size || ''} selected</button>
           </div>`
             : ''
-        }`;
+        }
+        <div class="actions"><button type="button" class="btn ghost" data-close>${icon('x')} Close review</button></div>`;
       $('#revSince', root).value = since || '';
+      $('#revOut', root).querySelectorAll('[data-close]').forEach((b) => {
+        b.onclick = () => {
+          pending.clear();
+          $('#revOut', root).innerHTML = '';
+          $('#revBtn', root).focus();
+        };
+      });
       $('#revSince', root).onchange = (e) => (pending.clear(), renderReview(e.target.value));
       $('#revOut', root).querySelectorAll('[data-merge]').forEach((b) => {
         b.onclick = () => {
@@ -287,6 +301,20 @@ export function settingsView(root, ctx) {
           renderPeople();
           $('#mergeBar', root).scrollIntoView({ block: 'center', behavior: 'smooth' });
           toast('Selected. Choose the name to keep, then merge.');
+        };
+      });
+      $('#revOut', root).querySelectorAll('[data-distinct]').forEach((b) => {
+        b.onclick = async () => {
+          const group = groups[Number(b.dataset.group)];
+          const person = group.find((p) => p.id === b.dataset.distinct);
+          b.disabled = true;
+          try {
+            await markNotSame(person, group.filter((p) => p.id !== person.id));
+            toast(`${person.name} marked as a different person`);
+          } catch {
+            toast('Could not save that. Try again.');
+          }
+          renderReview(since);
         };
       });
       $('#revOut', root).querySelectorAll('[data-del]').forEach((c) => {
