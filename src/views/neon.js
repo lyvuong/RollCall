@@ -1,22 +1,9 @@
-import { auth } from '../firebase.js';
+import { neonApi } from '../lib/neonApi.js';
 import { loadExisting, newId, commitOps } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { ymd, addDays } from '../lib/time.js';
 import { planNeonEvents } from '../lib/neon.js';
-
-async function neonApi(path, init = {}) {
-  const user = auth.currentUser;
-  if (!user) throw new Error('Not signed in');
-  const token = await user.getIdToken();
-  const res = await fetch(`/api/neon/${path}`, {
-    ...init,
-    headers: { ...init.headers, Authorization: `Bearer ${token}` },
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(body.error || `HTTP ${res.status}`), { status: res.status });
-  return body;
-}
 
 export function neonView(root, ctx) {
   if (!ctx.isAdmin) {

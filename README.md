@@ -46,7 +46,7 @@ An installable, offline-capable PWA built for OSG staff.
 | **Photos** | Attach photos to an event. Images are resized and re-encoded on the device (full and thumbnail), then stored in Cloudflare R2. |
 | **Reports and export** | Pick a date range and export events and attendees to CSV in a format that re-imports losslessly. |
 | **CSV import** | Bring in past events and people, including AMS exports, with a preview step before anything is written. |
-| **Neon One import** | Admin page to preview Neon One CRM events by date range and import them, linking events that already exist. |
+| **Neon One events** | Neon One CRM events for the visible date range appear in the Events list next to staff-created ones (read-only, cached for offline). Tap *Import and open* to start roll call on one. Admins can also bulk-import from Settings. |
 | **Works offline** | Reads and check-offs work with poor venue wifi and sync when you reconnect. Installs to the home screen. |
 | **Auto-updating** | Installed phones pick up new deploys on launch, on return to the foreground, and hourly. |
 | **Sign-in** | Google, or a passwordless **email link** for any address (for example a Neon One staff email). |

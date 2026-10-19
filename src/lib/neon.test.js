@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planNeonEvents } from './neon.js';
+import { planNeonEvents, neonOnlyEvents } from './neon.js';
 
 let n = 0;
 const newId = (col) => `${col}-${++n}`;
@@ -60,5 +60,40 @@ describe('planNeonEvents', () => {
     expect(locs).toHaveLength(1);
     expect(plan.stats.newLocations).toBe(1);
     expect(events.map((o) => o.data.locationId)).toEqual(['l1', locs[0].id, locs[0].id, null]);
+  });
+});
+
+describe('neonOnlyEvents', () => {
+  const local = (o) => ({ id: 'e1', name: 'Food Drive', date: '2026-03-14', startTime: '09:00', ...o });
+
+  it('keeps Neon events that are not in RollCall, sorted by date then time', () => {
+    const out = neonOnlyEvents(
+      [ev({ neonEventId: '2', name: 'B', date: '2026-03-15' }), ev({ neonEventId: '3', name: 'A', startTime: '10:00' }), ev({ neonEventId: '4', name: 'C', startTime: '08:00' })],
+      [],
+    );
+    expect(out.map((e) => e.name)).toEqual(['C', 'A', 'B']);
+  });
+
+  it('hides events already linked by Neon id', () => {
+    expect(neonOnlyEvents([ev()], [local({ name: 'Renamed', neonEventId: '1' })])).toEqual([]);
+  });
+
+  it('hides events that match a local event by name, date and start', () => {
+    expect(neonOnlyEvents([ev({ name: 'food  DRIVE' })], [local()])).toEqual([]);
+  });
+
+  it('treats a missing start time as 09:00 when matching, but leaves it blank for display', () => {
+    const n = ev({ startTime: '', endTime: '' });
+    expect(neonOnlyEvents([n], [local()])).toEqual([]);
+    expect(neonOnlyEvents([n], [])[0]).toMatchObject({ startTime: '', endTime: '' });
+  });
+
+  it('drops duplicates, unnamed and undated events', () => {
+    const out = neonOnlyEvents([ev(), ev(), ev({ neonEventId: '5', name: '' }), ev({ neonEventId: '6', date: 'nope' })], []);
+    expect(out).toHaveLength(1);
+  });
+
+  it('copes with no Neon data', () => {
+    expect(neonOnlyEvents(null, [local()])).toEqual([]);
   });
 });

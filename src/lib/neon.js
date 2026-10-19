@@ -79,3 +79,27 @@ export function planNeonEvents(neonEvents, existing, newId) {
   }
   return { rows, ops, stats };
 }
+
+/**
+ * Neon events that have no RollCall counterpart yet, sorted for display.
+ * An event counts as present when a local event carries its neonEventId, or
+ * matches on name|date|start time (the same rule planNeonEvents links on).
+ * neonEvents = [{neonEventId, name, date, startTime?, endTime?, location?}]; events = local events.
+ */
+export function neonOnlyEvents(neonEvents, events) {
+  const ids = new Set(events.filter((e) => e.neonEventId).map((e) => String(e.neonEventId)));
+  const keys = new Set(events.map((e) => `${lower(e.name)}|${e.date}|${e.startTime}`));
+  const seen = new Set();
+  const out = [];
+  for (const n of neonEvents || []) {
+    const id = String(n.neonEventId || '');
+    const date = parseDate(n.date);
+    const name = String(n.name || '').replace(/\s+/g, ' ').trim();
+    if (!id || !name || !date || seen.has(id) || ids.has(id)) continue;
+    seen.add(id);
+    const start = parseTime(n.startTime) || DEFAULT_START;
+    if (keys.has(`${lower(name)}|${date}|${start}`)) continue;
+    out.push({ ...n, neonEventId: id, name, date, startTime: parseTime(n.startTime) || '', endTime: parseTime(n.endTime) || '' });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime) || a.name.localeCompare(b.name));
+}
