@@ -1,6 +1,9 @@
 import './styles.css';
 import { registerSW } from 'virtual:pwa-register';
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
+import {
+  onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut,
+  isSignInWithEmailLink, sendSignInLinkToEmail, signInWithEmailLink,
+} from 'firebase/auth';
 import { auth } from './firebase.js';
 import { getMember, getMembership, getIsAdmin, redeemInvite, setMyName } from './data.js';
 import { esc, $, toast } from './lib/dom.js';
@@ -49,18 +52,72 @@ function renderCard(html) {
   app.innerHTML = `<main class="center"><div class="card gate">${html}</div></main>`;
 }
 
-function showLogin(error = '') {
+const EMAIL_KEY = 'rollcall.emailForSignIn';
+const store = {
+  get: () => { try { return localStorage.getItem(EMAIL_KEY) || ''; } catch { return ''; } },
+  set: (v) => { try { localStorage.setItem(EMAIL_KEY, v); } catch { /* private mode */ } },
+  clear: () => { try { localStorage.removeItem(EMAIL_KEY); } catch { /* private mode */ } },
+};
+
+async function finishEmailLink(email) {
+  try {
+    await signInWithEmailLink(auth, email, location.href);
+    store.clear();
+    history.replaceState(null, '', location.pathname + location.hash);
+  } catch (e) {
+    history.replaceState(null, '', location.pathname + location.hash);
+    showLogin(`That sign-in link is invalid or has expired (${e.code || e.message}). Request a new one.`);
+  }
+}
+
+function showConfirmEmail() {
+  renderCard(`
+    ${logo(64)}
+    <h1>Confirm your email</h1>
+    <p class="muted">Enter the email address you requested the sign-in link with.</p>
+    <form id="confirm" class="form">
+      <input id="email" class="input" type="email" autocomplete="email" placeholder="you@example.org" aria-label="Email" required />
+      <button class="btn primary block" type="submit">${icon('login')} Continue</button>
+    </form>`);
+  $('#confirm').onsubmit = (e) => {
+    e.preventDefault();
+    finishEmailLink($('#email').value.trim());
+  };
+}
+
+function showLogin(error = '', sentTo = '') {
+  if (isSignInWithEmailLink(auth, location.href)) {
+    const email = store.get();
+    return email ? finishEmailLink(email) : showConfirmEmail();
+  }
   renderCard(`
     ${logo(72)}
     <h1>OSG Activity Roll Call</h1>
     <p class="muted">Roll call and volunteer hours for OSG events.</p>
     ${error ? `<p class="error">${icon('alert')}${esc(error)}</p>` : ''}
-    <button class="btn primary block" id="signin">${icon('login')} Sign in with Google</button>`);
+    ${sentTo ? `<p class="muted">${icon('check')} Link sent to ${esc(sentTo)}. Open it on this device to sign in.</p>` : ''}
+    <button class="btn primary block" id="signin">${icon('login')} Sign in with Google</button>
+    <p class="muted">or</p>
+    <form id="emailForm" class="form">
+      <input id="email" class="input" type="email" autocomplete="email" placeholder="Email address" aria-label="Email address" required />
+      <button class="btn block" type="submit">${icon('login')} Email me a sign-in link</button>
+    </form>`);
   $('#signin').onclick = async () => {
     try {
       await signInWithPopup(auth, new GoogleAuthProvider());
     } catch (e) {
       if (e.code !== 'auth/popup-closed-by-user') showLogin(`Sign-in failed: ${e.code || e.message}`);
+    }
+  };
+  $('#emailForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const email = $('#email').value.trim();
+    try {
+      await sendSignInLinkToEmail(auth, email, { url: location.origin + location.pathname, handleCodeInApp: true });
+      store.set(email);
+      showLogin('', email);
+    } catch (err) {
+      showLogin(`Could not send the link: ${err.code || err.message}`);
     }
   };
 }
