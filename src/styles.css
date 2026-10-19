@@ -532,3 +532,7 @@ label.btn.disabled { opacity: .6; pointer-events: none; }
 .rev-ignored ul { list-style: none; margin: 6px 0 0; padding: 0; }
 .rev-ignored li { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 3px 0; }
 .rev-ignored .btn.small { padding: 2px 8px; font-size: .75rem; }
+.event .badges { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.badge.neon.done { background: var(--mint-bg); color: var(--mint-ink); }
+.event.neon .stats { gap: 8px; }
+.neon-help { margin: 8px 0 0; font-size: .85rem; color: var(--muted, inherit); }

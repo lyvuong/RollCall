@@ -43,6 +43,7 @@ export const PRESETS = [
 // Remembered across navigation within the session.
 let range = null;
 const open = new Set(); // expanded event cards
+const helpOpen = new Set(); // Neon cards whose explanation is showing
 let filterOpen = false; // date-range card expanded?
 let fixOnly = false; // only events that still need volunteers identified, across all dates
 const ALL = { from: '2000-01-01', to: '2099-12-31' };
@@ -198,7 +199,10 @@ export function homeView(root, _ctx) {
             <a class="ibadge edit" href="#/event/${esc(e.id)}" aria-label="Edit ${esc(e.name)}" title="Edit event">${icon('edit')}</a>
             <strong>${esc(e.name)}</strong>
           </span>
-          <span class="badge ${esc(e.format)}" title="${f.label}">${icon(f.icon)}<span class="wide">${f.label}</span></span>
+          <span class="badges">
+            ${e.neonEventId ? `<span class="badge neon done" title="Imported from Neon One">${icon('check')}<span class="wide">Neon One</span></span>` : ''}
+            <span class="badge ${esc(e.format)}" title="${f.label}">${icon(f.icon)}<span class="wide">${f.label}</span></span>
+          </span>
         </div>
         <div class="meta">
           <span>${icon('clock')}<span class="wide">${formatTime(e.startTime)} – ${formatTime(e.endTime)}</span><span class="narrow">${formatTimeShort(e.startTime)}–${formatTimeShort(e.endTime)}</span> · ${formatHours(eventHours(e.startTime, e.endTime))}h</span>
@@ -228,12 +232,14 @@ export function homeView(root, _ctx) {
       <article class="card event neon ${e.date < ymd() ? 'past' : e.date === ymd() ? 'today' : 'future'}" data-neon="${esc(e.neonEventId)}">
         <div class="row">
           <span class="ttl"><strong>${esc(e.name)}</strong></span>
-          <span class="badge neon" title="From Neon One">${icon('download')}<span class="wide">Neon One</span></span>
+          <span class="badge neon" title="Created on Neon One, not imported yet">${icon('download')}<span class="wide">Neon One</span></span>
         </div>
         <div class="meta">${time}${e.location ? `<span>${icon('pin')}${esc(e.location)}</span>` : ''}</div>
         <div class="stats">
           <button type="button" class="btn neon-import" data-nid="${esc(e.neonEventId)}">${icon('plus')} Import and open</button>
+          <button type="button" class="chip neon-help-btn" data-help="${esc(e.neonEventId)}" aria-expanded="${helpOpen.has(e.neonEventId)}" aria-label="What is a Neon One event?">${icon('info')}<span class="wide">What's this?</span></button>
         </div>
+        ${helpOpen.has(e.neonEventId) ? `<p class="neon-help" role="note">Created on the OSG / Neon One platform, not in RollCall. Tap <b>Import and open</b> to copy it here and start roll call. Nothing is changed in Neon One.</p>` : ''}
       </article>`;
   }
 
@@ -298,6 +304,12 @@ export function homeView(root, _ctx) {
   $('#list', root).onclick = (ev) => {
     const imp = ev.target.closest('.neon-import');
     if (imp) return importNeon(imp);
+    const help = ev.target.closest('.neon-help-btn');
+    if (help) {
+      const id = help.dataset.help;
+      if (!helpOpen.delete(id)) helpOpen.add(id);
+      return renderList();
+    }
     if (ev.target.closest('a,button')) return;
     const card = ev.target.closest('[data-id]');
     if (!card) return;
