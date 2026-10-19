@@ -18,10 +18,10 @@ export function neonView(root, ctx) {
 
   root.innerHTML = `
     <section class="bar"><a class="btn ghost" href="#/settings">${icon('back')} Settings</a></section>
-    <h1 style="margin-bottom:14px">${icon('download', 'lg')} Neon One events</h1>
+    <h1 style="margin-bottom:14px">${icon('download', 'lg')} OSG Website events</h1>
     <section class="card">
       <h2>${icon('calendar')} 1. Choose dates</h2>
-      <p class="muted">Pulls events from Neon One into RollCall. Existing events are never changed except to remember their Neon link. Nothing is saved until you press Import.</p>
+      <p class="muted">Pulls events from the OSG Website into RollCall. Existing events are never changed except to remember their link. Nothing is saved until you press Import.</p>
       <form id="range" class="add">
         <input id="from" class="input" type="date" required aria-label="From date" value="${today}" />
         <input id="to" class="input" type="date" required aria-label="To date" value="${addDays(today, 90)}" />
@@ -90,7 +90,7 @@ export function neonView(root, ctx) {
     const btn = $('#fetch', root);
     btn.disabled = true;
     box.hidden = false;
-    box.innerHTML = `<p class="muted">Asking Neon One…</p>`;
+    box.innerHTML = `<p class="muted">Asking the OSG Website…</p>`;
     try {
       const from = $('#from', root).value;
       const to = $('#to', root).value;
@@ -110,12 +110,12 @@ export function neonView(root, ctx) {
     } catch (e) {
       const msg =
         e.status === 503
-          ? 'Neon One is not configured yet (NEON_ORG_ID and NEON_API_KEY).'
+          ? 'The OSG Website connection is not configured yet (NEON_ORG_ID and NEON_API_KEY).'
           : e.status === 429
-            ? 'Neon One is busy. Try again in a moment.'
+            ? 'The OSG Website is busy. Try again in a moment.'
             : e.status
-              ? `Neon One error: ${e.message}`
-              : 'Could not reach Neon One. Are you online?';
+              ? `OSG Website error: ${e.message}`
+              : 'Could not reach the OSG Website. Are you online?';
       box.innerHTML = `<p class="error">${icon('alert')} ${esc(msg)}</p>`;
     }
     btn.disabled = false;

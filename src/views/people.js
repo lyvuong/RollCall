@@ -38,7 +38,7 @@ export function participantsView(root, ctx, eventId) {
       const map = registrantMap(await fetchNeonRegistrants(event.neonEventId), event.registrants);
       if (Object.keys(map).length) await saveRegistrants(eventId, map);
     } catch {
-      toast('Could not load registered names from Neon One.');
+      toast('Could not load registered names from the OSG Website.');
     }
   }
 
@@ -53,7 +53,7 @@ export function participantsView(root, ctx, eventId) {
       <p id="sub" class="muted" style="margin-top:0"></p>
       <section class="card" id="regCard" hidden>
         <h2 id="regTitle"></h2>
-        <p class="muted tiny">Registered on Neon One. Confirm who showed up.</p>
+        <p class="muted tiny">Registered on the OSG Website. Confirm who showed up.</p>
         <ul id="regList" class="plist"></ul>
       </section>
       <section class="card">

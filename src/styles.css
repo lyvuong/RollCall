@@ -535,7 +535,8 @@ label.btn.disabled { opacity: .6; pointer-events: none; }
 .event .badges { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .badge.neon.done { background: var(--mint-bg); color: var(--mint-ink); }
 .event.neon .stats { gap: 8px; }
-.neon-help { margin: 8px 0 0; font-size: .85rem; color: var(--muted, inherit); }
+button.badge.neon-import { border: 0; font: inherit; cursor: pointer; }
+button.badge.neon-import:disabled { opacity: .6; cursor: wait; }
 
 /* Neon registrants: the chosen answer is filled in */
 .prow .btn.small.danger[aria-pressed="true"] { background: var(--rose-bg); color: var(--rose-ink); border-color: transparent; }
