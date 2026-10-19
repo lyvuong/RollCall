@@ -1,6 +1,8 @@
-import { watchEvents, watchLocations, watchAllPhotos } from '../data.js';
+import { watchEvents, watchLocations, watchAllPhotos, loadExisting, newId, commitOps } from '../data.js';
+import { fetchNeonEvents, readNeonCache } from '../lib/neonApi.js';
+import { neonOnlyEvents, planNeonEvents } from '../lib/neon.js';
 import { photoUrl } from '../lib/photos.js';
-import { esc, $ } from '../lib/dom.js';
+import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import {
   ymd,
@@ -52,6 +54,8 @@ export function homeView(root, _ctx) {
   let locations = {};
   let photosByEvent = new Map(); // eventId -> photo metadata[]
   let unsubEvents = () => {};
+  let neonRaw = []; // last Neon result for the visible range (cached copy first, then fresh)
+  let neonSeq = 0; // ignores answers for a range the user has already moved away from
 
   root.innerHTML = `
     <section class="bar">
@@ -122,7 +126,11 @@ export function homeView(root, _ctx) {
     $('#fix', root).setAttribute('aria-pressed', String(fixOnly));
     // Nothing to fix in view: hide the chip (kept while the filter is on, so it can be switched off).
     $('#fix', root).parentElement.hidden = !todo && !fixOnly;
-    if (!events.length) {
+    const neon = fixOnly ? [] : neonOnlyEvents(neonRaw, events).map((n) => ({ ...n, fromNeon: true }));
+    const merged = neon.length
+      ? [...events, ...neon].sort((a, b) => a.date.localeCompare(b.date) || (a.startTime || '').localeCompare(b.startTime || ''))
+      : events;
+    if (!merged.length) {
       list.innerHTML = `
         <div class="card empty">${icon('calendar', 'lg')}
           <p>No events in this range.</p>
@@ -130,7 +138,7 @@ export function homeView(root, _ctx) {
         </div>`;
       return;
     }
-    const shown = fixOnly ? events.filter(needsVolunteers) : events;
+    const shown = fixOnly ? events.filter(needsVolunteers) : merged;
     if (!shown.length) {
       list.innerHTML = `<div class="card empty">${icon('check', 'lg')}<p>${
         fixOnly ? 'No events need volunteers identified.' : 'No events in this range.'
@@ -147,7 +155,7 @@ export function homeView(root, _ctx) {
       .map(
         ([date, items]) => `
         <h2 class="day ${date === today ? 'today' : ''}">${esc(formatDay(date))}</h2>
-        ${items.map(card).join('')}`,
+        ${items.map((e) => (e.fromNeon ? neonCard(e) : card(e))).join('')}`,
       )
       .join('');
     loadThumbs();
@@ -211,6 +219,57 @@ export function homeView(root, _ctx) {
       </article>`;
   }
 
+  /** A Neon One event with no RollCall copy yet; importing it creates the event so roll call can start. */
+  function neonCard(e) {
+    const time = e.startTime
+      ? `<span>${icon('clock')}${formatTime(e.startTime)}${e.endTime ? ` – ${formatTime(e.endTime)}` : ''}</span>`
+      : '';
+    return `
+      <article class="card event neon ${e.date < ymd() ? 'past' : e.date === ymd() ? 'today' : 'future'}" data-neon="${esc(e.neonEventId)}">
+        <div class="row">
+          <span class="ttl"><strong>${esc(e.name)}</strong></span>
+          <span class="badge neon" title="From Neon One">${icon('download')}<span class="wide">Neon One</span></span>
+        </div>
+        <div class="meta">${time}${e.location ? `<span>${icon('pin')}${esc(e.location)}</span>` : ''}</div>
+        <div class="stats">
+          <button type="button" class="btn neon-import" data-nid="${esc(e.neonEventId)}">${icon('plus')} Import and open</button>
+        </div>
+      </article>`;
+  }
+
+  async function importNeon(btn) {
+    const ev = neonRaw.find((n) => String(n.neonEventId) === btn.dataset.nid);
+    if (!ev || btn.disabled) return;
+    btn.disabled = true;
+    try {
+      const plan = planNeonEvents([ev], await loadExisting(), newId);
+      const op = plan.ops.find((o) => o.col === 'events');
+      if (!op) throw new Error('nothing to import');
+      await commitOps(plan.ops);
+      location.hash = `#/event/${op.id}`;
+    } catch {
+      toast('Could not import that event. Try again.');
+      btn.disabled = false;
+    }
+  }
+
+  /** Show the cached Neon result at once, then refresh it. Any failure leaves the list as it was. */
+  async function loadNeon() {
+    const seq = ++neonSeq;
+    if (fixOnly || !range.from || !range.to || range.from > range.to) {
+      neonRaw = [];
+      return;
+    }
+    const { from, to } = range;
+    neonRaw = readNeonCache(from, to) || [];
+    renderList();
+    const fresh = await fetchNeonEvents(from, to);
+    if (fresh && seq === neonSeq) {
+      neonRaw = fresh;
+      renderList();
+    }
+  }
+
   function whoHtml(e) {
     const rows = Object.values(e.attendees || {}).sort((a, b) => a.name.localeCompare(b.name));
     if (!rows.length) return '<span class="muted">No participants yet.</span>';
@@ -225,6 +284,7 @@ export function homeView(root, _ctx) {
     const r = fixOnly ? ALL : range;
     if (!r.from || !r.to || r.from > r.to) {
       events = [];
+      neonRaw = [];
       renderList();
       return;
     }
@@ -232,9 +292,12 @@ export function homeView(root, _ctx) {
       events = rows;
       renderList();
     });
+    loadNeon();
   }
 
   $('#list', root).onclick = (ev) => {
+    const imp = ev.target.closest('.neon-import');
+    if (imp) return importNeon(imp);
     if (ev.target.closest('a,button')) return;
     const card = ev.target.closest('[data-id]');
     if (!card) return;
@@ -273,6 +336,7 @@ export function homeView(root, _ctx) {
   subscribe();
 
   return () => {
+    neonSeq++;
     unsubEvents();
     unsubLoc();
     unsubPhotos();

@@ -283,6 +283,10 @@ export async function commitOps(ops, onProgress = () => {}) {
   for (let i = 0; i < sorted.length; i += 400) {
     const batch = writeBatch(db);
     for (const op of sorted.slice(i, i + 400)) {
+      if (op.merge) {
+        batch.set(doc(db, op.col, op.id), op.data, { merge: true });
+        continue;
+      }
       const data = op.col === 'locations' ? op.data : { ...op.data, createdAt: serverTimestamp() };
       batch.set(doc(db, op.col, op.id), data);
     }

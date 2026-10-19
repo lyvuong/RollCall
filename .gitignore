@@ -5,3 +5,4 @@ dist
 *.log
 .emulator-data
 data/
+.dev.vars

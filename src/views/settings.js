@@ -79,6 +79,11 @@ export function settingsView(root, ctx) {
       <ul id="invs" class="rows"></ul>
     </section>
     <section class="card">
+      <h2>${icon('download')} Neon One</h2>
+      <p class="muted">Bring events from the Neon One CRM into RollCall.</p>
+      <a class="btn" href="#/neon">${icon('download')} Import events from Neon One</a>
+    </section>
+    <section class="card">
       <h2>${icon('shield')} Staff</h2>
       <div id="mems" class="tags"></div>
     </section>`
