@@ -46,6 +46,7 @@ An installable, offline-capable PWA built for OSG staff.
 | **Photos** | Attach photos to an event. Images are resized and re-encoded on the device (full and thumbnail), then stored in Cloudflare R2. |
 | **Reports and export** | Pick a date range and export events and attendees to CSV in a format that re-imports losslessly. |
 | **CSV import** | Bring in past events and people, including AMS exports, with a preview step before anything is written. |
+| **Saved Members review** | Admins can scan for look-alike names (typos, case, word order, extra middle names) and send them to the merge bar, and list people who never attended or haven't in 1, 2 or 3 years, then delete them in bulk. People on an upcoming event are never listed. |
 | **Neon One events** | Neon One CRM events for the visible date range appear in the Events list next to staff-created ones (read-only, cached for offline). Tap *Import and open* to start roll call on one. Admins can also bulk-import from Settings. |
 | **Works offline** | Reads and check-offs work with poor venue wifi and sync when you reconnect. Installs to the home screen. |
 | **Auto-updating** | Installed phones pick up new deploys on launch, on return to the foreground, and hourly. |
@@ -132,7 +133,7 @@ One-time setup for authentication and the database.
 6. **Make yourself the first admin.** Sign in once, find your UID under Authentication → Users, then in Firestore create an empty document `admins/<your uid>`. Reload; Settings now shows invitation codes.
 7. After the first deploy, add your hostname under **Authentication → Settings → Authorized domains** (your `*.pages.dev` host and any custom domain). Sign-in fails without it, for both Google and email links.
 
-> Optional: customize the email-link message under Authentication → Templates. Links come from `noreply@<project>.firebaseapp.com` and may land in spam the first time.
+> **Heads-up for staff:** sign-in emails come from `noreply@<project>.firebaseapp.com` and often land in **Spam** the first time. Tell new users to check there and mark the message "Not spam". For better deliverability, set a custom sender domain (with SPF/DKIM) under Authentication → Templates → Email link sign-in.
 
 ## Deploying to Cloudflare
 
@@ -153,6 +154,9 @@ The site is hosted on **Cloudflare Pages** with an **R2** bucket for photos.
 
 5. **Bindings:** add an **R2 bucket binding** named `PHOTOS` (Settings → Bindings).
 6. Every push to the production branch builds and deploys; other branches get preview builds. Production and Preview variables are separate, so set them in both if you test on previews.
+7. **Variable changes only apply to new deployments.** After adding or editing a variable or secret, go to Deployments → the latest Production row → **Retry deployment** (or push a commit). Until then the running Worker keeps the old values.
+
+Use the **Secret** type for `NEON_API_KEY` (and `NEON_ORG_ID` if you like). Secrets are hidden after saving; plain Text values are readable in the dashboard.
 
 Manual deploy from your machine:
 
@@ -177,7 +181,7 @@ NEON_API_KEY=your-api-key
 FIREBASE_PROJECT_ID=your-firebase-project-id
 ```
 
-Leave `NEON_BASE_URL` unset unless you need to override the default `https://api.neoncrm.com/v2`.
+Do **not** set `NEON_BASE_URL` (in `.dev.vars` or Cloudflare). The default `https://api.neoncrm.com/v2` is correct, and a wrong value, such as the documentation site, would send your credentials to the wrong host.
 
 | Route | Description |
 | --- | --- |
@@ -186,6 +190,15 @@ Leave `NEON_BASE_URL` unset unless you need to override the default `https://api
 | `GET /api/neon/events/:id/registrations` | Registrations for an event |
 | `GET /api/neon/events/:id/attendees` | Attendees with check-in state |
 | `POST /api/neon/accounts/search` | Candidate accounts by name or email |
+
+### Troubleshooting Neon One
+
+| Symptom | Cause and fix |
+| --- | --- |
+| "Neon One is not configured yet (NEON_ORG_ID and NEON_API_KEY)" | The running Worker can't see the variables. Confirm both are on the **Production** tab with non-empty values, then **Retry deployment**. |
+| "Neon One error: …" | The variables are read but Neon rejected the request. The message includes Neon's reason; check the key and org ID. |
+| "Could not reach Neon One" | The `/api` route isn't answering. Check the deployment succeeded and you are online. |
+| Neon events missing from the Events list | The list hides Neon errors on purpose. Run **Settings → Neon One → Preview** for the real message. Events that match a local event (same name, date and start time) are hidden as duplicates. |
 
 ## Daily use
 

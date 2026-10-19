@@ -14,11 +14,13 @@ import {
   deleteInvite,
   watchMembers,
   removeMember,
+  loadExisting,
 } from '../data.js';
 import { esc, $, toast, randomCode } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { ymd, addDays, personKind } from '../lib/time.js';
 import { getPref, setPref } from '../lib/theme.js';
+import { findDuplicateGroups, attendanceStats, inactivePeople } from '../lib/people.js';
 
 const fail = (msg) => () => toast(msg);
 
@@ -62,6 +64,14 @@ export function settingsView(root, ctx) {
         <button class="btn" type="submit">${icon('users')} <span id="mergeLbl"></span></button>
         <button class="btn ghost" type="button" id="mergeClear" aria-label="Clear selection" title="Clear selection">${icon('x')}</button>
       </form>
+      ${
+        ctx.isAdmin
+          ? `<div class="review">
+        <button class="btn" type="button" id="revBtn">${icon('search')} Review names</button>
+        <div id="revOut" aria-live="polite"></div>
+      </div>`
+          : ''
+      }
       <a class="btn" href="#/import" style="margin-top:14px">${icon('upload')} Import people or past events</a>
     </section>
 
@@ -216,6 +226,110 @@ export function settingsView(root, ctx) {
     }
     renderPeople();
   };
+
+  /* ----- review: possible duplicates and people who no longer attend (admins) ----- */
+
+  if (ctx.isAdmin) {
+    let stats = new Map();
+    const pending = new Set(); // inactive people ticked for deletion
+    const fmt = (d) => (d ? new Date(d + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'never');
+    const label = (p) => {
+      const s = stats.get(p.id);
+      const last = s?.last ? `last ${fmt(s.last)}` : s?.upcoming ? 'upcoming only' : 'never attended';
+      return `${esc(p.name)} <small class="muted">${personKind(p.type) === 'osg' ? 'OSG' : 'Community'} · ${s?.past || 0} event${s?.past === 1 ? '' : 's'} · ${last}</small>`;
+    };
+
+    const renderReview = (since) => {
+      const groups = findDuplicateGroups(people);
+      const cutoff = since ? addDays(ymd(), -Number(since)) : null;
+      const idle = inactivePeople(people, stats, cutoff);
+      for (const id of pending) if (!idle.some((p) => p.id === id)) pending.delete(id);
+      $('#revOut', root).innerHTML = `
+        <h3>Possible duplicates <small class="muted">(${groups.length})</small></h3>
+        ${
+          groups.length
+            ? groups
+                .map(
+                  (g, i) => `<div class="rev-group">
+              <ul>${g.map((p) => `<li>${label(p)}</li>`).join('')}</ul>
+              <button type="button" class="btn small" data-merge="${i}">${icon('users')} Select to merge</button></div>`,
+                )
+                .join('')
+            : '<p class="muted">No look-alike names found.</p>'
+        }
+        <h3>Not attending</h3>
+        <label class="field"><span class="lbl">Show people who have</span>
+          <select id="revSince" class="input">
+            <option value="">never attended an event</option>
+            <option value="365">not attended in the last year</option>
+            <option value="730">not attended in 2 years</option>
+            <option value="1095">not attended in 3 years</option>
+          </select></label>
+        <p class="muted">${idle.length} ${idle.length === 1 ? 'person' : 'people'}. People on an upcoming event are never listed.</p>
+        ${
+          idle.length
+            ? `<ul class="rev-list">${idle
+                .map(
+                  (p) => `<li><label><input type="checkbox" data-del="${esc(p.id)}" ${pending.has(p.id) ? 'checked' : ''} /> ${label(p)}</label></li>`,
+                )
+                .join('')}</ul>
+          <div class="actions">
+            <button type="button" class="btn ghost" id="revAll">Select all</button>
+            <button type="button" class="btn danger" id="revDelete" ${pending.size ? '' : 'disabled'}>${icon('trash')} Delete ${pending.size || ''} selected</button>
+          </div>`
+            : ''
+        }`;
+      $('#revSince', root).value = since || '';
+      $('#revSince', root).onchange = (e) => (pending.clear(), renderReview(e.target.value));
+      $('#revOut', root).querySelectorAll('[data-merge]').forEach((b) => {
+        b.onclick = () => {
+          groups[Number(b.dataset.merge)].forEach((p) => picked.add(p.id));
+          renderPeople();
+          $('#mergeBar', root).scrollIntoView({ block: 'center', behavior: 'smooth' });
+          toast('Selected. Choose the name to keep, then merge.');
+        };
+      });
+      $('#revOut', root).querySelectorAll('[data-del]').forEach((c) => {
+        c.onchange = () => {
+          c.checked ? pending.add(c.dataset.del) : pending.delete(c.dataset.del);
+          renderReview(since);
+        };
+      });
+      const all = $('#revAll', root);
+      if (all) all.onclick = () => (idle.forEach((p) => pending.add(p.id)), renderReview(since));
+      const del = $('#revDelete', root);
+      if (del) {
+        del.onclick = async () => {
+          const doomed = idle.filter((p) => pending.has(p.id));
+          if (!doomed.length || !confirm(`Delete ${doomed.length} saved ${doomed.length === 1 ? 'name' : 'names'}? Past events keep their attendance record.`)) return;
+          del.disabled = true;
+          try {
+            await Promise.all(doomed.map((p) => deletePerson(p.id)));
+            toast(`Deleted ${doomed.length}`);
+            pending.clear();
+          } catch {
+            toast('Could not delete everyone. Try again.');
+          }
+          renderReview(since);
+        };
+      }
+    };
+
+    $('#revBtn', root).onclick = async () => {
+      const btn = $('#revBtn', root);
+      btn.disabled = true;
+      $('#revOut', root).innerHTML = '<p class="muted">Reading event history…</p>';
+      try {
+        const { events } = await loadExisting();
+        stats = attendanceStats(events, ymd());
+        pending.clear();
+        renderReview('');
+      } catch {
+        $('#revOut', root).innerHTML = '<p class="error">Could not load event history. Are you online?</p>';
+      }
+      btn.disabled = false;
+    };
+  }
 
   /* ----- admin: invites & members ----- */
 

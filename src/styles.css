@@ -513,3 +513,13 @@ label.btn.disabled { opacity: .6; pointer-events: none; }
 .tn img:not([src]) { visibility: hidden; }
 .tn.broken { opacity: .5; }
 .tn.more { font-weight: 800; font-size: .9rem; color: var(--primary-ink); }
+
+/* Saved Members review */
+.review { margin-top: 14px; }
+.review h3 { margin: 16px 0 6px; font-size: 1rem; }
+.rev-group { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 8px 10px; margin-top: 8px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px; }
+.rev-group ul, .rev-list { list-style: none; margin: 0; padding: 0; }
+.rev-list { max-height: 320px; overflow: auto; margin-top: 8px; }
+.rev-list li { padding: 4px 0; }
+.rev-list label { display: flex; align-items: center; gap: 8px; }
+.review .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
