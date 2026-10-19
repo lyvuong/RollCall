@@ -1,4 +1,4 @@
-import { watchEvent, watchPeople, setAttendance, setRole, addPerson } from '../data.js';
+import { watchEvent, watchPeople, setAttendance, setRole, addPerson, markRegistrant } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { countRoles, personKind, roleOf, formatDay, eventHours, formatHours, totalVolunteerHours } from '../lib/time.js';
@@ -36,6 +36,11 @@ export function participantsView(root, ctx, eventId) {
     <div id="body" hidden>
       <h1 id="title" style="margin-bottom:4px"></h1>
       <p id="sub" class="muted" style="margin-top:0"></p>
+      <section class="card" id="regCard" hidden>
+        <h2 id="regTitle"></h2>
+        <p class="muted tiny">Registered on Neon One. Confirm who showed up.</p>
+        <ul id="regList" class="plist"></ul>
+      </section>
       <section class="card">
         <div class="inputicon">${icon('search')}
           <input id="q" class="input" type="search" placeholder="Search a name to add…" aria-label="Search saved people to add" autocomplete="off" />
@@ -87,6 +92,25 @@ export function participantsView(root, ctx, eventId) {
     const pending = removed.size + roleEdits.size + (selfStaged ? 1 : 0);
     $('#done', root).textContent = pending ? `Save ${pending} change${pending === 1 ? '' : 's'} & done` : 'Done';
     $('#listTitle', root).innerHTML = `${icon('users')} Participants (${Object.keys(att).length})`;
+
+    // registered on Neon One: staff only confirm Here / Missing
+    const regs = Object.entries(event.registrants || {})
+      .map(([key, r]) => ({ key, ...r }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    $('#regCard', root).hidden = !regs.length;
+    if (regs.length) {
+      const n = (st) => regs.filter((r) => (r.status || 'pending') === st).length;
+      $('#regTitle', root).innerHTML = `${icon('check')} Registered (${regs.length}) <span class="muted tiny">${n('present')} here · ${n('missing')} missing · ${n('pending')} to confirm</span>`;
+      $('#regList', root).innerHTML = regs
+        .map((r) => {
+          const st = r.status || 'pending';
+          const nm = esc(r.name);
+          const btn = (kind, ic, label, cls) =>
+            `<button type="button" class="btn small${st === kind ? ` ${cls}` : ' ghost'}" data-reg="${esc(r.key)}" data-st="${kind}" aria-pressed="${st === kind}" aria-label="${label}: ${nm}" title="${st === kind ? 'Tap to undo' : label}">${icon(ic)}<span class="wide">${label}</span></button>`;
+          return `<li class="prow"><span class="nm">${nm}</span>${btn('present', 'check', 'Here', 'primary')}${btn('missing', 'x', 'Missing', 'danger')}</li>`;
+        })
+        .join('');
+    }
 
     // current attendees
     const cur = Object.entries(att)
@@ -144,6 +168,26 @@ export function participantsView(root, ctx, eventId) {
     const t = ev.target.closest('button');
     if (!t || !event) return;
     const att = fullAtt();
+    if (t.dataset.reg) {
+      const r = event.registrants?.[t.dataset.reg];
+      if (!r) return;
+      const next = (r.status || 'pending') === t.dataset.st ? 'pending' : t.dataset.st;
+      let person = null;
+      if (next === 'present') {
+        const same = (x) => x.name.toLowerCase() === r.name.toLowerCase();
+        const there = Object.entries(event.attendees || {}).find(([, a]) => same(a));
+        const known = people.find(same);
+        if (there) person = { id: there[0], name: there[1].name, alreadyThere: true };
+        else if (known) person = known;
+        else {
+          const created = addPerson(r.name, 'community');
+          created.done.catch(() => toast('Could not save person.'));
+          person = created.person;
+        }
+      }
+      markRegistrant(eventId, { key: t.dataset.reg, ...r }, next, person).catch(fail);
+      return;
+    }
     if (t.dataset.del) {
       const id = t.dataset.del;
       if (selfStaged && id === selfId()) selfStaged = false;

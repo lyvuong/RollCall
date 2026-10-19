@@ -1,5 +1,5 @@
 import { watchEvents, watchLocations, watchAllPhotos, loadExisting, newId, commitOps } from '../data.js';
-import { fetchNeonEvents, readNeonCache } from '../lib/neonApi.js';
+import { fetchNeonEvents, readNeonCache, fetchRegistrantsFor } from '../lib/neonApi.js';
 import { neonOnlyEvents, planNeonEvents } from '../lib/neon.js';
 import { photoUrl } from '../lib/photos.js';
 import { esc, $, toast } from '../lib/dom.js';
@@ -248,7 +248,8 @@ export function homeView(root, _ctx) {
     if (!ev || btn.disabled) return;
     btn.disabled = true;
     try {
-      const plan = planNeonEvents([ev], await loadExisting(), newId);
+      const [existing, { byEvent }] = await Promise.all([loadExisting(), fetchRegistrantsFor([String(ev.neonEventId)])]);
+      const plan = planNeonEvents([ev], existing, newId, byEvent);
       const op = plan.ops.find((o) => o.col === 'events');
       if (!op) throw new Error('nothing to import');
       await commitOps(plan.ops);

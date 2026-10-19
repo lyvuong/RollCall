@@ -1,4 +1,4 @@
-import { neonApi } from '../lib/neonApi.js';
+import { neonApi, fetchRegistrantsFor } from '../lib/neonApi.js';
 import { loadExisting, newId, commitOps } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
@@ -14,6 +14,7 @@ export function neonView(root, ctx) {
   const today = ymd();
   let plan = null;
   let busy = false;
+  let registrantsFailed = 0;
 
   root.innerHTML = `
     <section class="bar"><a class="btn ghost" href="#/settings">${icon('back')} Settings</a></section>
@@ -33,7 +34,7 @@ export function neonView(root, ctx) {
 
   function render() {
     const s = plan.stats;
-    const problems = plan.rows.filter((r) => r.status !== 'ok');
+    const problems = plan.rows.filter((r) => r.status !== 'ok' || /registered name/.test(r.message));
     const writes = plan.ops.length;
     box.hidden = false;
     box.innerHTML = `
@@ -41,10 +42,12 @@ export function neonView(root, ctx) {
       <div class="stats">
         <span class="pill">${icon('check')}<b>${s.created}</b> new</span>
         <span class="pill">${icon('swap')}<b>${s.linked}</b> linked to existing</span>
+        ${s.registrants ? `<span class="pill">${icon('users')}<b>${s.registrants}</b> registered names</span>` : ''}
         ${s.newLocations ? `<span class="pill">${icon('pin')}<b>${s.newLocations}</b> new locations</span>` : ''}
         <span class="pill">${icon('copy')}<b>${s.skipped}</b> skipped</span>
         <span class="pill">${icon('alert')}<b>${s.errors}</b> with errors</span>
       </div>
+      ${registrantsFailed ? `<p class="muted">${icon('alert')} Registered names could not be loaded for ${registrantsFailed} event${registrantsFailed === 1 ? '' : 's'}. Preview again to retry.</p>` : ''}
       ${
         problems.length
           ? `<div class="table-wrap"><table class="table"><thead><tr><th>Event</th><th>Result</th></tr></thead><tbody>
@@ -95,7 +98,14 @@ export function neonView(root, ctx) {
         neonApi(`events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
         loadExisting(),
       ]);
-      plan = planNeonEvents(events, existing, newId);
+      // Registered names, so staff can confirm who came. Skip events that already have them stored.
+      const have = new Set(existing.events.filter((e) => e.registrants && e.neonEventId).map((e) => String(e.neonEventId)));
+      const ids = [...new Set(events.map((e) => String(e.neonEventId)))].filter((id) => !have.has(id));
+      const { byEvent, failed } = await fetchRegistrantsFor(ids, (done, total) => {
+        box.innerHTML = `<p class="muted">Loading registered names… ${done} of ${total} events</p>`;
+      });
+      registrantsFailed = failed;
+      plan = planNeonEvents(events, existing, newId, byEvent);
       render();
     } catch (e) {
       const msg =

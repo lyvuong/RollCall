@@ -13,9 +13,12 @@ const DEFAULT_START = '09:00';
  *
  * Matching: neonEventId first, then name|date|startTime. A match only gets its
  * neonEventId linked (merge), never its attendees, hours or description.
+ * registrants (optional) = { [neonEventId]: [{attendeeId, accountId?, name}] } from /api/neon/events/:id/attendees.
+ * They are stored on the event as `registrants` (attendeeId -> {name, accountId, status:'pending'}) so staff can
+ * confirm who showed up. Only registrants not already stored are added; confirmed ones are never reset.
  * Returns { rows:[{status,message,label}], ops:[{col,id,data,merge?}], stats }.
  */
-export function planNeonEvents(neonEvents, existing, newId) {
+export function planNeonEvents(neonEvents, existing, newId, registrants = {}) {
   const byNeon = new Map(existing.events.filter((e) => e.neonEventId).map((e) => [String(e.neonEventId), e]));
   const byKey = new Map(existing.events.map((e) => [`${lower(e.name)}|${e.date}|${e.startTime}`, e]));
   const locByName = new Map((existing.locations || []).map((l) => [lower(l.name), l]));
@@ -34,7 +37,19 @@ export function planNeonEvents(neonEvents, existing, newId) {
   const seen = new Set();
   const rows = [];
   const ops = [];
-  const stats = { created: 0, linked: 0, skipped: 0, errors: 0, newLocations: 0 };
+  const stats = { created: 0, linked: 0, skipped: 0, errors: 0, newLocations: 0, registrants: 0 };
+  /** Registrants of Neon event `id` not stored on `current` yet, as a Firestore map ({} when none). */
+  const newRegistrants = (id, current) => {
+    const out = {};
+    for (const r of registrants[id] || []) {
+      const key = String(r.attendeeId || '');
+      const name = String(r.name || '').replace(/\s+/g, ' ').trim();
+      if (!key || !name || current?.[key]) continue;
+      out[key] = { name, accountId: String(r.accountId || ''), status: 'pending' };
+    }
+    stats.registrants += Object.keys(out).length;
+    return out;
+  };
   const row = (status, message, label) => {
     rows.push({ status, message, label });
     if (status === 'ok') return;
@@ -59,23 +74,32 @@ export function planNeonEvents(neonEvents, existing, newId) {
     if (toMinutes(end) <= toMinutes(start)) start = hhmm(toMinutes(end) - 1);
 
     if (byNeon.has(id)) {
-      row('skip', 'Already imported', label);
+      const regs = newRegistrants(id, byNeon.get(id).registrants);
+      const added = Object.keys(regs).length;
+      if (added) {
+        ops.push({ col: 'events', id: byNeon.get(id).id, data: { registrants: regs }, merge: true });
+        row('ok', `already imported · ${added} registered name${added === 1 ? '' : 's'} added`, label);
+      } else row('skip', 'Already imported', label);
       continue;
     }
     const match = byKey.get(`${lower(name)}|${date}|${start}`);
     if (match) {
-      ops.push({ col: 'events', id: match.id, data: { neonEventId: id }, merge: true });
+      const regs = newRegistrants(id, match.registrants);
+      const added = Object.keys(regs).length;
+      ops.push({ col: 'events', id: match.id, data: { neonEventId: id, ...(added ? { registrants: regs } : {}) }, merge: true });
       stats.linked++;
-      row('ok', 'linked to existing event', label);
+      row('ok', `linked to existing event${added ? ` · ${added} registered name${added === 1 ? '' : 's'}` : ''}`, label);
       continue;
     }
+    const regs = newRegistrants(id);
+    const added = Object.keys(regs).length;
     ops.push({
       col: 'events',
       id: newId('events'),
-      data: { name, description: '', date, startTime: start, endTime: end, format: 'in-person', locationId: locationFor(n.location), attendees: {}, neonEventId: id },
+      data: { name, description: '', date, startTime: start, endTime: end, format: 'in-person', locationId: locationFor(n.location), attendees: {}, neonEventId: id, ...(added ? { registrants: regs } : {}) },
     });
     stats.created++;
-    row('ok', 'new event', label);
+    row('ok', `new event${added ? ` · ${added} registered name${added === 1 ? '' : 's'}` : ''}`, label);
   }
   return { rows, ops, stats };
 }

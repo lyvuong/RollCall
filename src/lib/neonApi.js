@@ -46,3 +46,43 @@ export async function fetchNeonEvents(from, to) {
     return null;
   }
 }
+
+const CANCELLED = /cancel|fail|refund|declin/i;
+
+/**
+ * Registered names for one Neon event: [{attendeeId, accountId, name}]. Cancelled or failed registrations are
+ * left out. Throws when Neon is unreachable.
+ */
+export async function fetchNeonRegistrants(neonEventId) {
+  const { attendees } = await neonApi(`events/${encodeURIComponent(neonEventId)}/attendees`);
+  const seen = new Set();
+  return (attendees || []).filter((a) => {
+    if (!a.name || !a.attendeeId || seen.has(a.attendeeId) || CANCELLED.test(a.status || '')) return false;
+    seen.add(a.attendeeId);
+    return true;
+  });
+}
+
+/**
+ * Registrants for several events, a few requests at a time (Neon rate-limits).
+ * Resolves { byEvent: {neonEventId: [...]}, failed: n }; a failed event is simply left out.
+ */
+export async function fetchRegistrantsFor(neonEventIds, onProgress = () => {}, concurrency = 4) {
+  const byEvent = {};
+  let failed = 0;
+  let next = 0;
+  let done = 0;
+  const worker = async () => {
+    while (next < neonEventIds.length) {
+      const id = neonEventIds[next++];
+      try {
+        byEvent[id] = await fetchNeonRegistrants(id);
+      } catch {
+        failed++;
+      }
+      onProgress(++done, neonEventIds.length);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, neonEventIds.length) }, worker));
+  return { byEvent, failed };
+}

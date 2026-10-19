@@ -6,6 +6,29 @@ const newId = (col) => `${col}-${++n}`;
 const ev = (o) => ({ neonEventId: '1', name: 'Food Drive', date: '2026-03-14', startTime: '09:00', endTime: '12:00', ...o });
 const none = { events: [], locations: [] };
 
+describe('planNeonEvents registrants', () => {
+  const regs = { 1: [{ attendeeId: 'a1', accountId: '9', name: 'Sam  Lee' }, { attendeeId: 'a2', name: 'Jo Ng' }] };
+
+  it('stores registered names as pending on new events', () => {
+    const plan = planNeonEvents([ev()], none, newId, regs);
+    expect(plan.ops[0].data.registrants).toEqual({
+      a1: { name: 'Sam Lee', accountId: '9', status: 'pending' },
+      a2: { name: 'Jo Ng', accountId: '', status: 'pending' },
+    });
+    expect(plan.stats.registrants).toBe(2);
+  });
+
+  it('adds only missing names to an already imported event and keeps confirmations', () => {
+    const existing = { events: [{ id: 'e1', name: 'Food Drive', date: '2026-03-14', startTime: '09:00', neonEventId: '1', registrants: { a1: { name: 'Sam Lee', status: 'present' } } }], locations: [] };
+    const plan = planNeonEvents([ev()], existing, newId, regs);
+    expect(plan.ops).toEqual([{ col: 'events', id: 'e1', data: { registrants: { a2: { name: 'Jo Ng', accountId: '', status: 'pending' } } }, merge: true }]);
+  });
+
+  it('writes nothing extra when there are no registrants', () => {
+    expect(planNeonEvents([ev()], none, newId).ops[0].data).not.toHaveProperty('registrants');
+  });
+});
+
 describe('planNeonEvents', () => {
   it('creates new events with the Neon id and empty attendance', () => {
     const plan = planNeonEvents([ev()], none, newId);

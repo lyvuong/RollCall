@@ -166,6 +166,24 @@ export function setAttendance(eventId, person, present, role = 'participant') {
   });
 }
 
+/**
+ * Staff confirmation of a name registered on Neon One: status 'present' | 'missing' | 'pending'.
+ * Present also adds `person` to the roll (only when they were not already on it, remembered as personId so
+ * un-confirming takes back exactly what this added). Leaving 'present' removes that addition again.
+ */
+export function markRegistrant(eventId, reg, status, person = null) {
+  const patch = { [`registrants.${reg.key}.status`]: status };
+  if (reg.personId && status !== 'present') {
+    patch[`attendees.${reg.personId}`] = deleteField();
+    patch[`registrants.${reg.key}.personId`] = deleteField();
+  }
+  if (status === 'present' && person && !person.alreadyThere) {
+    patch[`attendees.${person.id}`] = { name: person.name, type: personKind(person.type), role: 'participant' };
+    patch[`registrants.${reg.key}.personId`] = person.id;
+  }
+  return updateDoc(doc(db, 'events', eventId), patch);
+}
+
 export function setRole(eventId, personId, role) {
   return updateDoc(doc(db, 'events', eventId), { [`attendees.${personId}.role`]: role });
 }
