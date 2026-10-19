@@ -184,6 +184,9 @@ export function markRegistrant(eventId, reg, status, person = null) {
   return updateDoc(doc(db, 'events', eventId), patch);
 }
 
+/** Store newly found registrants on an event (existing keys and their confirmations are left alone by the caller). */
+export const saveRegistrants = (eventId, map) => setDoc(doc(db, 'events', eventId), { registrants: map }, { merge: true });
+
 export function setRole(eventId, personId, role) {
   return updateDoc(doc(db, 'events', eventId), { [`attendees.${personId}.role`]: role });
 }

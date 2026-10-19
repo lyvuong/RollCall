@@ -248,11 +248,12 @@ export function homeView(root, _ctx) {
     if (!ev || btn.disabled) return;
     btn.disabled = true;
     try {
-      const [existing, { byEvent }] = await Promise.all([loadExisting(), fetchRegistrantsFor([String(ev.neonEventId)])]);
+      const [existing, { byEvent, failed }] = await Promise.all([loadExisting(), fetchRegistrantsFor([String(ev.neonEventId)])]);
       const plan = planNeonEvents([ev], existing, newId, byEvent);
       const op = plan.ops.find((o) => o.col === 'events');
       if (!op) throw new Error('nothing to import');
       await commitOps(plan.ops);
+      if (failed) toast('Imported, but registered names could not be loaded. Open Participants to retry.');
       location.hash = `#/event/${op.id}`;
     } catch {
       toast('Could not import that event. Try again.');

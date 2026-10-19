@@ -1,5 +1,7 @@
-import { watchEvent, watchPeople, setAttendance, setRole, addPerson, markRegistrant } from '../data.js';
+import { watchEvent, watchPeople, setAttendance, setRole, addPerson, markRegistrant, saveRegistrants } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
+import { fetchNeonRegistrants } from '../lib/neonApi.js';
+import { registrantMap } from '../lib/neon.js';
 import { icon } from '../lib/icons.js';
 import { countRoles, personKind, roleOf, formatDay, eventHours, formatHours, totalVolunteerHours } from '../lib/time.js';
 
@@ -26,6 +28,19 @@ export function participantsView(root, ctx, eventId) {
     ...(selfStaged ? { [selfId()]: { name: selfName, type: selfPerson()?.type || 'osg', role: 'volunteer' } } : {}),
   });
   const unsubs = [];
+  let regTried = false;
+
+  /** A Neon event with no stored names (imported earlier, or the fetch failed then): fetch and save them once. */
+  async function backfillRegistrants() {
+    if (regTried || !event?.neonEventId || event.registrants) return;
+    regTried = true;
+    try {
+      const map = registrantMap(await fetchNeonRegistrants(event.neonEventId), event.registrants);
+      if (Object.keys(map).length) await saveRegistrants(eventId, map);
+    } catch {
+      toast('Could not load registered names from Neon One.');
+    }
+  }
 
   root.innerHTML = `
     <section class="bar">
@@ -68,6 +83,7 @@ export function participantsView(root, ctx, eventId) {
     }
     $('#state', root).hidden = true;
     $('#body', root).hidden = false;
+    backfillRegistrants();
     $('#title', root).textContent = event.name;
 
     if (!selfChecked && peopleLoaded && selfName) {

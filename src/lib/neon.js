@@ -5,6 +5,18 @@ const lower = (s) => String(s || '').trim().toLowerCase();
 const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 const DEFAULT_START = '09:00';
 
+/** Registrants not already stored in `current`, as the Firestore map {attendeeId: {name, accountId, status:'pending'}}. */
+export function registrantMap(list, current) {
+  const out = {};
+  for (const r of list || []) {
+    const key = String(r.attendeeId || '');
+    const name = String(r.name || '').replace(/\s+/g, ' ').trim();
+    if (!key || !name || current?.[key]) continue;
+    out[key] = { name, accountId: String(r.accountId || ''), status: 'pending' };
+  }
+  return out;
+}
+
 /**
  * Build a write plan from events returned by /api/neon/events.
  * neonEvents = [{neonEventId, name, date, startTime, endTime, location?}]
@@ -38,15 +50,8 @@ export function planNeonEvents(neonEvents, existing, newId, registrants = {}) {
   const rows = [];
   const ops = [];
   const stats = { created: 0, linked: 0, skipped: 0, errors: 0, newLocations: 0, registrants: 0 };
-  /** Registrants of Neon event `id` not stored on `current` yet, as a Firestore map ({} when none). */
   const newRegistrants = (id, current) => {
-    const out = {};
-    for (const r of registrants[id] || []) {
-      const key = String(r.attendeeId || '');
-      const name = String(r.name || '').replace(/\s+/g, ' ').trim();
-      if (!key || !name || current?.[key]) continue;
-      out[key] = { name, accountId: String(r.accountId || ''), status: 'pending' };
-    }
+    const out = registrantMap(registrants[id], current);
     stats.registrants += Object.keys(out).length;
     return out;
   };
