@@ -16,13 +16,15 @@ export function participantsView(root, ctx, eventId) {
   const removed = new Set(); // staged removals, applied on Done
   const roleEdits = new Map(); // staged role changes (id -> role), applied on Done
   const effRole = (id, a) => roleEdits.get(id) || roleOf(a);
-  // The signed-in staff member is staged as a volunteer when they are not on the event yet.
+  // "Include myself" stages the signed-in staff member as a volunteer (nothing is added automatically).
   let peopleLoaded = false;
   let selfStaged = false;
-  let selfChecked = false;
   const selfName = (ctx?.name || '').trim();
   const selfPerson = () => people.find((x) => x.name.toLowerCase() === selfName.toLowerCase());
   const selfId = () => selfPerson()?.id || '__self__';
+  /** Id of the signed-in staff member's entry already saved on the event, if any. */
+  const myEntryId = () =>
+    selfName ? Object.entries(event?.attendees || {}).find(([, a]) => a.name.toLowerCase() === selfName.toLowerCase())?.[0] : undefined;
   const fullAtt = () => ({
     ...(event?.attendees || {}),
     ...(selfStaged ? { [selfId()]: { name: selfName, type: selfPerson()?.type || 'osg', role: 'volunteer' } } : {}),
@@ -64,6 +66,7 @@ export function participantsView(root, ctx, eventId) {
       </section>
       <section class="card">
         <h2 id="listTitle">${icon('users')} Participants</h2>
+        ${selfName ? `<div class="selfrow"><button type="button" class="btn small" id="selfToggle" aria-pressed="false">${icon('heart')} <span>Include myself</span> <span class="muted">(${esc(selfName)})</span></button></div>` : ''}
         <p class="legend tiny"><span class="osg">OSG</span><span class="community">Community</span><span class="vol">${icon('heart')} Volunteer</span></p>
         <div id="current" class="inl"></div>
         <button type="button" id="done" class="btn primary block">Done</button>
@@ -86,10 +89,12 @@ export function participantsView(root, ctx, eventId) {
     backfillRegistrants();
     $('#title', root).textContent = event.name;
 
-    if (!selfChecked && peopleLoaded && selfName) {
-      selfChecked = true;
-      const there = Object.values(event.attendees || {}).some((a) => a.name.toLowerCase() === selfName.toLowerCase());
-      selfStaged = !there;
+    const mine = myEntryId();
+    const selfOn = selfStaged || (mine && !removed.has(mine));
+    const tog = $('#selfToggle', root);
+    if (tog) {
+      tog.setAttribute('aria-pressed', String(!!selfOn));
+      tog.classList.toggle('primary', !!selfOn);
     }
     const att = fullAtt();
     const kept = Object.fromEntries(
@@ -184,6 +189,13 @@ export function participantsView(root, ctx, eventId) {
     const t = ev.target.closest('button');
     if (!t || !event) return;
     const att = fullAtt();
+    if (t.id === 'selfToggle') {
+      const mine = myEntryId();
+      if (mine) (removed.has(mine) ? removed.delete(mine) : removed.add(mine));
+      else selfStaged = !selfStaged;
+      render();
+      return;
+    }
     if (t.dataset.reg) {
       const r = event.registrants?.[t.dataset.reg];
       if (!r) return;

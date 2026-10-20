@@ -241,7 +241,7 @@ textarea.input { resize: vertical; }
 .pill.vol { background: var(--rose-bg); color: var(--rose-ink); }
 .pill.mem { background: var(--sky-bg); color: var(--sky-ink); }
 .pill.hrs { background: var(--peach-bg); color: var(--peach-ink); }
-.narrow { display: none; }
+.narrow, .meta .narrow { display: none; }
 .counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
 .pill b { font-weight: 800; }
 .fab { position: static; flex: none; width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 12px; box-shadow: none; font-size: .92rem; }
@@ -327,8 +327,8 @@ textarea.input { resize: vertical; }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 
 @media (max-width: 520px) {
-  .wide { display: none; }
-  .narrow { display: inline; }
+  .wide, .meta .wide { display: none; }
+  .narrow, .meta .narrow { display: inline; }
   .meta { gap: 4px 10px; font-size: .85rem; }
   .pill { padding: 3px 8px; }
   .badge { padding: 3px 7px; }
@@ -540,3 +540,5 @@ button.badge.neon-import:disabled { opacity: .6; cursor: wait; }
 
 /* Neon registrants: the chosen answer is filled in */
 .prow .btn.small.danger[aria-pressed="true"] { background: var(--rose-bg); color: var(--rose-ink); border-color: transparent; }
+.pill.reg { background: var(--sky-bg); color: var(--sky-ink); }
+.selfrow { margin: 0 0 10px; }

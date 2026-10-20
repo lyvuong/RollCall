@@ -20,9 +20,9 @@ import {
 } from '../lib/time.js';
 
 const FORMAT = {
-  virtual: { label: 'Virtual', icon: 'video' },
-  'in-person': { label: 'In person', icon: 'building' },
-  both: { label: 'Hybrid', icon: 'globe' },
+  virtual: { label: 'Virtual', icon: 'video', tip: 'Held online only' },
+  'in-person': { label: 'In person', icon: 'building', tip: 'Held at a place, no online option' },
+  both: { label: 'Hybrid', icon: 'globe', tip: 'People can join in person or online' },
 };
 
 const startOfWeek = (d) => addDays(d, -((new Date(d + 'T00:00').getDay() + 6) % 7));
@@ -191,6 +191,7 @@ export function homeView(root, _ctx) {
     const { volunteers, participants } = countRoles(e.attendees);
     const loc = e.locationId ? locations[e.locationId] : '';
     const f = FORMAT[e.format] || FORMAT['in-person'];
+    const registered = e.neonEventId ? Object.keys(e.registrants || {}).length : 0;
     return `
       <article class="card event ${esc(e.format)} ${e.date < ymd() ? 'past' : e.date === ymd() ? 'today' : 'future'}${needsVolunteers(e) ? ' flag' : ''}" data-id="${esc(e.id)}" aria-expanded="${open.has(e.id)}">
         <div class="row">
@@ -200,7 +201,7 @@ export function homeView(root, _ctx) {
           </span>
           <span class="badges">
             ${e.neonEventId ? `<span class="badge neon done" title="Imported from the OSG Website">${icon('check')}<span class="wide">OSG</span></span>` : ''}
-            <span class="badge ${esc(e.format)}" title="${f.label}">${icon(f.icon)}<span class="wide">${f.label}</span></span>
+            <span class="badge ${esc(e.format)}" title="${f.tip}">${icon(f.icon)}<span class="wide">${f.label}</span></span>
           </span>
         </div>
         <div class="meta">
@@ -209,6 +210,7 @@ export function homeView(root, _ctx) {
         </div>
         <div class="stats">
           <span class="pill vol" title="Volunteers">${icon('heart')}<b>${volunteers}</b><span class="wide">volunteer${volunteers === 1 ? '' : 's'}</span></span>
+          ${registered ? `<span class="pill reg" title="Registered on the OSG Website">${icon('userPlus')}<b>${registered}</b><span class="wide">registered</span></span>` : ''}
           <span class="pill mem" title="Participants">${icon('users')}<b>${participants}</b><span class="wide">participant${participants === 1 ? '' : 's'}</span></span>
           <span class="pill hrs" title="Total volunteer hours">${icon('hourglass')}<b>${formatHours(totalVolunteerHours(e))}</b> hrs</span>
           ${needsVolunteers(e) ? `<span class="pill warn" title="Recorded hours, but no volunteers identified">${icon('alert')}<span class="wide">Assign volunteers</span></span>` : ''}
