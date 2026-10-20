@@ -33,6 +33,18 @@ function mockFetch(handler) {
 
 beforeEach(() => mockFetch(() => ok({})));
 
+describe('neon info', () => {
+  it('flags a sandbox org without calling Neon', async () => {
+    const res = await call('/api/neon/info', {}, { ...env, NEON_ORG_ID: 'ourstompinggroundsandbox' });
+    expect(await res.json()).toEqual({ org: 'ourstompinggroundsandbox', sandbox: true });
+    expect(neonCalls).toHaveLength(0);
+  });
+
+  it('reports a live org as not sandbox', async () => {
+    expect((await (await call('/api/neon/info')).json()).sandbox).toBe(false);
+  });
+});
+
 describe('neon proxy auth', () => {
   it('requires a valid token', async () => {
     const res = await worker.fetch(new Request('https://app.test/api/neon/status'), env);

@@ -79,6 +79,14 @@ small { font-size: .82rem; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.15rem; color: var(--text); }
 .brand .logo { border-radius: 10px; }
 .spacer { flex: 1; }
+.env-badge {
+  padding: 4px 10px; border-radius: 999px; font-size: .75rem; font-weight: 800; letter-spacing: .06em;
+  text-transform: uppercase; background: #f59e0b; color: #1f1300;
+}
+.env-badge[hidden] { display: none; }
+body.sandbox::before {
+  content: ''; position: fixed; top: 0; left: 0; right: 0; height: 4px; background: #f59e0b; z-index: 100;
+}
 .topnav { display: none; gap: 6px; }
 .navlink {
   display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px;

@@ -145,6 +145,12 @@ async function handleNeonUncached(request, url, env) {
   const { pathname } = url;
   const method = request.method;
 
+  // Which Neon org this deployment talks to (no Neon call), so the app can flag a sandbox.
+  if (pathname === '/api/neon/info' && method === 'GET') {
+    const org = env.NEON_ORG_ID || '';
+    return json({ org, sandbox: /sandbox/i.test(org) });
+  }
+
   if (pathname === '/api/neon/status' && method === 'GET') {
     await neonFetch(env, '/events/search/searchFields');
     return json({ ok: true });
