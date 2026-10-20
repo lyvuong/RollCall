@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planNeonEvents, neonOnlyEvents, inferFormat, emptyPastNeonEvents } from './neon.js';
+import { planNeonEvents, neonOnlyEvents, inferFormat, emptyPastNeonEvents, neonSyncPlan, neonEventPatch } from './neon.js';
 
 describe('emptyPastNeonEvents', () => {
   it('keeps only past imported events nobody used', () => {
@@ -145,5 +145,62 @@ describe('inferFormat', () => {
     const plan = planNeonEvents([ev({ name: 'Club (Virtual)', location: 'Zoom' })], none, newId);
     expect(plan.ops[0].data).toMatchObject({ format: 'virtual', locationId: null });
     expect(plan.ops.some((o) => o.col === 'locations')).toBe(false);
+  });
+});
+
+describe('neonSyncPlan', () => {
+  const ev = { name: 'Walk', date: '2026-10-20', startTime: '09:00', endTime: '10:00' };
+  const neon = { name: 'Walk', date: '2026-10-20', endDate: '2026-10-20', startTime: '09:00', endTime: '10:00', location: 'Cadence' };
+
+  it('is in sync when nothing differs', () => {
+    expect(neonSyncPlan(ev, neon, [], 'Cadence').inSync).toBe(true);
+  });
+
+  it('ignores extra whitespace in names and the case of locations', () => {
+    expect(neonSyncPlan({ ...ev, name: ' Walk  ' }, { ...neon, name: 'Walk' }, [], 'cadence').inSync).toBe(true);
+  });
+
+  it('lists changed details', () => {
+    const plan = neonSyncPlan({ ...ev, name: 'Walk 2', date: '2026-10-21', endTime: '11:00' }, neon, [], 'Queens Court');
+    expect(plan.details.map((d) => d.field)).toEqual(['name', 'date', 'endTime', 'location']);
+    expect(plan.details[3]).toMatchObject({ local: 'Queens Court', neon: 'Cadence' });
+  });
+
+  it('does not treat times Neon lacks, or an unset local location, as differences', () => {
+    expect(neonSyncPlan(ev, { ...neon, startTime: '', endTime: '' }, [], '').inSync).toBe(true);
+  });
+
+  it('pushes confirmed check-ins that differ, never pending ones', () => {
+    const attendees = [
+      { attendeeId: '1', registrationId: '90', name: 'Ada', markedAttended: false },
+      { attendeeId: '2', registrationId: '91', name: 'Bo', markedAttended: true },
+      { attendeeId: '3', registrationId: '92', name: 'Cy', markedAttended: true },
+      { attendeeId: '4', registrationId: '93', name: 'Di', markedAttended: false },
+    ];
+    const registrants = {
+      1: { name: 'Ada', status: 'present' }, // Neon says no -> send true
+      2: { name: 'Bo', status: 'missing' }, // Neon says yes -> send false
+      3: { name: 'Cy', status: 'present' }, // already agrees
+      4: { name: 'Di' }, // pending: left alone
+      9: { name: 'Gone', status: 'present' }, // not on Neon any more: skipped
+    };
+    const plan = neonSyncPlan({ ...ev, registrants }, neon, attendees, 'Cadence');
+    expect(plan.checkins).toEqual([
+      { attendeeId: '1', registrationId: '90', name: 'Ada', attended: true },
+      { attendeeId: '2', registrationId: '91', name: 'Bo', attended: false },
+    ]);
+    expect(plan.count).toBe(2);
+  });
+
+  it('skips check-ins when attendees are not loaded', () => {
+    expect(neonSyncPlan({ ...ev, registrants: { 1: { name: 'Ada', status: 'present' } } }, neon, null, 'Cadence').checkins).toEqual([]);
+  });
+});
+
+describe('neonEventPatch', () => {
+  it('moves a one-day event as one day and keeps a multi-day end', () => {
+    const d = [{ field: 'date', local: '2026-10-21' }];
+    expect(neonEventPatch(d, { date: '2026-10-20', endDate: '2026-10-20' })).toEqual({ date: '2026-10-21', endDate: '2026-10-21' });
+    expect(neonEventPatch(d, { date: '2026-10-20', endDate: '2026-10-22' })).toEqual({ date: '2026-10-21' });
   });
 });

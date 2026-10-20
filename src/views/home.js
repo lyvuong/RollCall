@@ -1,6 +1,6 @@
 import { watchEvents, watchLocations, watchAllPhotos, loadExisting, newId, commitOps } from '../data.js';
 import { fetchNeonEvents, readNeonCache, fetchRegistrantsFor } from '../lib/neonApi.js';
-import { neonOnlyEvents, planNeonEvents } from '../lib/neon.js';
+import { neonOnlyEvents, planNeonEvents, neonSyncPlan } from '../lib/neon.js';
 import { photoUrl } from '../lib/photos.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
@@ -56,6 +56,7 @@ export function homeView(root, _ctx) {
   let unsubEvents = () => {};
   let neonRaw = []; // last Neon result for the visible range (cached copy first, then fresh)
   let neonSeq = 0; // ignores answers for a range the user has already moved away from
+  const checkinDiff = new Map(); // eventId -> {sig, n}: confirmed check-ins that differ from the OSG Website
 
   root.innerHTML = `
     <section class="bar">
@@ -186,6 +187,38 @@ export function homeView(root, _ctx) {
     </div>`;
   }
 
+  /** How many compared things differ from the OSG Website for this event (0 = in sync or not yet known). */
+  function unsyncedCount(e) {
+    if (!e.neonEventId) return 0;
+    const n = neonRaw.find((x) => String(x.neonEventId) === String(e.neonEventId));
+    const details = n ? neonSyncPlan(e, n, null, e.locationId ? locations[e.locationId] : '').details.length : 0;
+    return details + (checkinDiff.get(e.id)?.n || 0);
+  }
+
+  /**
+   * Compare confirmed check-ins with the OSG Website for events that have any (names are cached, so this is
+   * cheap after the first look). Re-runs only for events whose confirmations changed.
+   */
+  async function checkCheckins() {
+    const seq = neonSeq;
+    const regSig = (e) => JSON.stringify(Object.entries(e.registrants || {}).map(([k, r]) => [k, r.status || 'pending']).sort());
+    const todo = events.filter(
+      (e) => e.neonEventId && e.date <= ymd() && Object.values(e.registrants || {}).some((r) => (r.status || 'pending') !== 'pending') && checkinDiff.get(e.id)?.sig !== regSig(e),
+    );
+    if (!todo.length) return;
+    const { byEvent } = await fetchRegistrantsFor(todo.map((e) => String(e.neonEventId)));
+    if (seq !== neonSeq) return;
+    let changed = false;
+    for (const e of todo) {
+      const list = byEvent[String(e.neonEventId)];
+      if (!list) continue; // Neon unreachable for this one: say nothing
+      const n = neonSyncPlan(e, { name: e.name, date: e.date }, list, '').checkins.length;
+      if ((checkinDiff.get(e.id)?.n || 0) !== n) changed = true;
+      checkinDiff.set(e.id, { sig: regSig(e), n });
+    }
+    if (changed) renderList();
+  }
+
   function card(e) {
     const photos = photosByEvent.get(e.id) || [];
     const { volunteers, participants } = countRoles(e.attendees);
@@ -200,6 +233,7 @@ export function homeView(root, _ctx) {
             <strong>${esc(e.name)}</strong>
           </span>
           <span class="badges">
+            ${unsyncedCount(e) ? `<span class="badge unsynced" title="${unsyncedCount(e)} difference${unsyncedCount(e) === 1 ? '' : 's'} from the OSG Website. Open the event to review and send.">${icon('alert')}<span class="wide">Out of sync</span></span>` : ''}
             ${e.neonEventId ? `<span class="badge neon done" title="Imported from the OSG Website">${icon('check')}<span class="wide">OSG</span></span>` : ''}
             <span class="badge ${esc(e.format)}" title="${f.tip}">${icon(f.icon)}<span class="wide">${f.label}</span></span>
           </span>
@@ -275,6 +309,7 @@ export function homeView(root, _ctx) {
       neonRaw = fresh;
       renderList();
     }
+    checkCheckins();
   }
 
   function whoHtml(e) {
@@ -298,6 +333,7 @@ export function homeView(root, _ctx) {
     unsubEvents = watchEvents(r.from, r.to, (rows) => {
       events = rows;
       renderList();
+      checkCheckins();
     });
     loadNeon();
   }

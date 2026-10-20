@@ -4,6 +4,10 @@
 //   GET  /api/neon/events/:id/registrations     registrations for one event
 //   GET  /api/neon/events/:id/attendees         attendees with markedAttended (check-in) state
 //   POST /api/neon/accounts/search              {name?, email?} -> candidate accounts
+//   GET  /api/neon/events/:id/sync              fresh event details + attendees (never cached), for sync checks
+//   PATCH /api/neon/events/:id                  {name?, date?, endDate?, startTime?, endTime?, location?} -> event
+//   PATCH /api/neon/registrations/:id/attendance {attendeeId, attended} -> sets markedAttended
+// Writes only run against a sandbox org, or when NEON_ALLOW_WRITES=1 (so production stays read-only until enabled).
 // The API key lives in env.NEON_API_KEY and never reaches the browser.
 // Event field names and pagination (currentPage) were verified against a live org; account search
 // field names ("First Name", "Last Name", "Email", "Account ID", "Email 1") still need checking.
@@ -109,6 +113,54 @@ const normalizeAttendee = (a) => ({
 });
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Writes are allowed on a sandbox org, or anywhere NEON_ALLOW_WRITES=1. */
+export const isSandbox = (env) => /sandbox/i.test(env.NEON_ORG_ID || '');
+export const canWrite = (env) => isSandbox(env) || env.NEON_ALLOW_WRITES === '1';
+
+/** "17:30" -> "05:30 PM" (the only time format Neon accepts when writing). */
+export function toNeonTime(hm24) {
+  const [h, m] = hm24.split(':').map(Number);
+  return `${String(h % 12 || 12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+/** "05:30 PM" or "17:30:00" -> "17:30"; empty when missing. */
+function fromNeonTime(t) {
+  const s = String(t || '').trim();
+  const ampm = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(s);
+  if (!ampm) return hm(s);
+  const h = (Number(ampm[1]) % 12) + (ampm[3].toUpperCase() === 'PM' ? 12 : 0);
+  return `${String(h).padStart(2, '0')}:${ampm[2]}`;
+}
+
+/** GET /events/:id as the same shape the events list uses. */
+const normalizeEventDetail = (e) => ({
+  neonEventId: String(e.id),
+  name: e.name || '',
+  date: String(e.eventDates?.startDate || '').slice(0, 10),
+  endDate: String(e.eventDates?.endDate || '').slice(0, 10),
+  startTime: fromNeonTime(e.eventDates?.startTime),
+  endTime: fromNeonTime(e.eventDates?.endTime),
+  location: String(e.location?.name || '').trim(),
+});
+
+// Writes make cached lists stale; entries older than the newest write are ignored (best effort, per data center).
+const EPOCH_KEY = 'https://neon.internal/write-epoch';
+async function writeEpoch(cache) {
+  try {
+    return Number((await (await cache?.match(EPOCH_KEY))?.text()) || 0);
+  } catch {
+    return 0;
+  }
+}
+async function bumpEpoch() {
+  try {
+    await globalThis.caches?.default?.put(EPOCH_KEY, new Response(String(Date.now()), { headers: { 'Cache-Control': 'public, max-age=3600' } }));
+  } catch {
+    /* best effort */
+  }
+}
 
 const CACHE_SECONDS = 300;
 const cacheable = (method, pathname) =>
@@ -124,7 +176,7 @@ export async function handleNeon(request, url, env) {
   const key = new Request(url.toString(), { method: 'GET' });
   try {
     const hit = await cache?.match(key);
-    if (hit) return hit;
+    if (hit && Number(hit.headers.get('X-Cached-At') || 0) >= (await writeEpoch(cache))) return hit;
   } catch {
     /* cache unavailable: fall through to Neon */
   }
@@ -132,6 +184,7 @@ export async function handleNeon(request, url, env) {
   if (cache && res.status === 200) {
     const copy = new Response(res.clone().body, res);
     copy.headers.set('Cache-Control', `public, max-age=${CACHE_SECONDS}`);
+    copy.headers.set('X-Cached-At', String(Date.now()));
     try {
       await cache.put(key, copy);
     } catch {
@@ -148,7 +201,7 @@ async function handleNeonUncached(request, url, env) {
   // Which Neon org this deployment talks to (no Neon call), so the app can flag a sandbox.
   if (pathname === '/api/neon/info' && method === 'GET') {
     const org = env.NEON_ORG_ID || '';
-    return json({ org, sandbox: /sandbox/i.test(org) });
+    return json({ org, sandbox: isSandbox(env), canWrite: canWrite(env) });
   }
 
   if (pathname === '/api/neon/status' && method === 'GET') {
@@ -186,6 +239,57 @@ async function handleNeonUncached(request, url, env) {
     return json({ attendees: attendees.map(normalizeAttendee) });
   }
 
+  const sync = /^\/api\/neon\/events\/(\d{1,12})\/sync$/.exec(pathname);
+  if (sync && method === 'GET') {
+    const [event, attendees] = await Promise.all([
+      neonFetch(env, `/events/${sync[1]}`),
+      listAll(env, `/events/${sync[1]}/attendees`, 'attendees'),
+    ]);
+    return json({ event: normalizeEventDetail(event), attendees: attendees.map(normalizeAttendee), canWrite: canWrite(env) });
+  }
+
+  const evWrite = /^\/api\/neon\/events\/(\d{1,12})$/.exec(pathname);
+  if (evWrite && method === 'PATCH') {
+    if (!canWrite(env)) return json({ error: 'Sending to the OSG Website is turned off for this site' }, 403);
+    const body = await readJson(request);
+    if (!body) return json({ error: 'invalid JSON' }, 400);
+    const bad = validateEventPatch(body);
+    if (bad) return json({ error: bad }, 400);
+    const patch = {};
+    if (body.name !== undefined) patch.name = body.name.trim();
+    if (body.location !== undefined) patch.location = { name: body.location.trim() };
+    if (body.date !== undefined || body.endDate !== undefined || body.startTime !== undefined || body.endTime !== undefined) {
+      // eventDates is sent whole; fill what the caller left out from the event as it is now.
+      const cur = (await neonFetch(env, `/events/${evWrite[1]}`)).eventDates || {};
+      patch.eventDates = {
+        startDate: body.date ?? cur.startDate,
+        endDate: body.endDate ?? body.date ?? cur.endDate,
+        startTime: body.startTime !== undefined ? toNeonTime(body.startTime) : cur.startTime ?? null,
+        endTime: body.endTime !== undefined ? toNeonTime(body.endTime) : cur.endTime ?? null,
+      };
+    }
+    if (!Object.keys(patch).length) return json({ error: 'nothing to change' }, 400);
+    await neonFetch(env, `/events/${evWrite[1]}`, { method: 'PATCH', body: JSON.stringify(patch) });
+    await bumpEpoch();
+    return json({ ok: true });
+  }
+
+  const attWrite = /^\/api\/neon\/registrations\/(\d{1,12})\/attendance$/.exec(pathname);
+  if (attWrite && method === 'PATCH') {
+    if (!canWrite(env)) return json({ error: 'Sending to the OSG Website is turned off for this site' }, 403);
+    const body = await readJson(request);
+    const attendeeId = Number(body?.attendeeId);
+    if (!Number.isInteger(attendeeId) || attendeeId <= 0 || typeof body?.attended !== 'boolean') {
+      return json({ error: 'attendeeId and attended (boolean) required' }, 400);
+    }
+    await neonFetch(env, `/eventRegistrations/${attWrite[1]}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ tickets: [{ attendees: [{ attendeeId, markedAttended: body.attended }] }] }),
+    });
+    await bumpEpoch();
+    return json({ ok: true });
+  }
+
   if (pathname === '/api/neon/accounts/search' && method === 'POST') {
     let body;
     try {
@@ -217,4 +321,22 @@ async function handleNeonUncached(request, url, env) {
   }
 
   return json({ error: 'not found' }, 404);
+}
+
+async function readJson(request) {
+  try {
+    return await request.json();
+  } catch {
+    return null;
+  }
+}
+
+/** Returns an error message, or '' when the body is a valid event patch. */
+function validateEventPatch(b) {
+  const str = (v, max) => typeof v === 'string' && v.trim().length > 0 && v.length <= max;
+  if (b.name !== undefined && !str(b.name, 200)) return 'name must be 1-200 characters';
+  if (b.location !== undefined && !str(b.location, 200)) return 'location must be 1-200 characters';
+  for (const k of ['date', 'endDate']) if (b[k] !== undefined && !DATE.test(b[k])) return `${k} must be YYYY-MM-DD`;
+  for (const k of ['startTime', 'endTime']) if (b[k] !== undefined && !HM.test(b[k])) return `${k} must be HH:MM`;
+  return '';
 }

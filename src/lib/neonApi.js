@@ -1,4 +1,5 @@
 import { auth } from '../firebase.js';
+import { neonEventPatch } from './neon.js';
 
 export async function neonApi(path, init = {}) {
   const user = auth.currentUser;
@@ -99,4 +100,53 @@ export async function fetchRegistrantsFor(neonEventIds, onProgress = () => {}, c
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, neonEventIds.length) }, worker));
   return { byEvent, failed };
+}
+
+/** Drop the browser-side Neon caches (after a write, so the next read is fresh). */
+export function forgetNeonCache() {
+  try {
+    localStorage.removeItem(CACHE_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+  REG_MEMO.clear();
+}
+
+let infoPromise = null;
+/** {org, sandbox, canWrite} for this deployment; null when there is no Worker. Asked once per page session. */
+export function neonInfo() {
+  infoPromise ||= neonApi('info').catch(() => ((infoPromise = null), null));
+  return infoPromise;
+}
+
+/** Fresh (uncached) Neon view of one event: {event, attendees, canWrite}. */
+export const fetchNeonSync = (neonEventId) => neonApi(`events/${encodeURIComponent(neonEventId)}/sync`);
+
+const patchJson = (body) => ({ method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+/**
+ * Send a neonSyncPlan() to Neon: event details first, then each check-in. Keeps going when one fails.
+ * Resolves { sent, failed: [name or 'Event details'] }.
+ */
+export async function pushNeonSync(neonEventId, plan, neonEvent) {
+  const failed = [];
+  let sent = 0;
+  try {
+    if (plan.details.length) {
+      await neonApi(`events/${encodeURIComponent(neonEventId)}`, patchJson(neonEventPatch(plan.details, neonEvent)));
+      sent += plan.details.length;
+    }
+  } catch {
+    failed.push('Event details');
+  }
+  for (const c of plan.checkins) {
+    try {
+      await neonApi(`registrations/${encodeURIComponent(c.registrationId)}/attendance`, patchJson({ attendeeId: c.attendeeId, attended: c.attended }));
+      sent++;
+    } catch {
+      failed.push(c.name);
+    }
+  }
+  forgetNeonCache();
+  return { sent, failed };
 }

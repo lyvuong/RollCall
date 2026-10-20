@@ -155,3 +155,52 @@ export function emptyPastNeonEvents(events, today) {
     .filter((e) => e.neonEventId && e.date < today && !Object.keys(e.attendees || {}).length && !(Number(e.volunteerHours) > 0))
     .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
 }
+
+const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+
+/**
+ * Compare a RollCall event with what the OSG Website (Neon) holds, in the direction RollCall -> Neon.
+ *   event       local event ({name, date, startTime, endTime, registrants?})
+ *   neonEvent   {name, date, endDate?, startTime, endTime, location} (times 'HH:MM', '' when Neon has none)
+ *   attendees   Neon attendees [{attendeeId, registrationId, name, markedAttended}] or null when not loaded
+ *   locationName  the local location's name ('' for virtual or unset)
+ * Times and locations RollCall merely defaulted are not differences: a field is only compared when both sides
+ * have a value. Registrants still 'pending' are never pushed; 'present' -> attended, 'missing' -> not attended.
+ * Returns { details:[{field,label,local,neon}], checkins:[{attendeeId,registrationId,name,attended}], count, inSync }.
+ */
+export function neonSyncPlan(event, neonEvent, attendees, locationName = '') {
+  const details = [];
+  const add = (field, label, local, neon) => details.push({ field, label, local, neon });
+  if (clean(event.name) !== clean(neonEvent.name)) add('name', 'Name', clean(event.name), clean(neonEvent.name));
+  if (event.date && event.date !== neonEvent.date) add('date', 'Date', event.date, neonEvent.date);
+  if (event.startTime && neonEvent.startTime && event.startTime !== neonEvent.startTime) add('startTime', 'Start', event.startTime, neonEvent.startTime);
+  if (event.endTime && neonEvent.endTime && event.endTime !== neonEvent.endTime) add('endTime', 'End', event.endTime, neonEvent.endTime);
+  const loc = clean(locationName);
+  if (loc && lower(loc) !== lower(clean(neonEvent.location))) add('location', 'Location', loc, clean(neonEvent.location));
+
+  const checkins = [];
+  if (attendees) {
+    const byId = new Map(attendees.map((a) => [String(a.attendeeId), a]));
+    for (const [key, r] of Object.entries(event.registrants || {})) {
+      const status = r.status || 'pending';
+      if (status === 'pending') continue;
+      const a = byId.get(String(key));
+      const attended = status === 'present';
+      if (a?.registrationId && a.markedAttended !== attended) {
+        checkins.push({ attendeeId: String(key), registrationId: String(a.registrationId), name: r.name || a.name, attended });
+      }
+    }
+    checkins.sort((x, y) => x.name.localeCompare(y.name));
+  }
+  const count = details.length + checkins.length;
+  return { details, checkins, count, inSync: count === 0 };
+}
+
+/** The Neon event patch ({name?, date?, endDate?, startTime?, endTime?, location?}) that makes `details` true. */
+export function neonEventPatch(details, neonEvent) {
+  const patch = {};
+  for (const d of details) patch[d.field] = d.local;
+  // A one-day Neon event stays one day when its date moves; a multi-day one keeps its end date.
+  if (patch.date && (!neonEvent.endDate || neonEvent.endDate === neonEvent.date)) patch.endDate = patch.date;
+  return patch;
+}
