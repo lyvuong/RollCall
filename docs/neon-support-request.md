@@ -1,5 +1,3 @@
-# Draft message to Neon One support
-
 **Subject:** API: PATCH /eventRegistrations/{id} fails with "Event coupon code is invalid" (14014) when couponCode is an empty string
 
 Hello Amy,
