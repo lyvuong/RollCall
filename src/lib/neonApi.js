@@ -100,3 +100,16 @@ export async function fetchRegistrantsFor(neonEventIds, onProgress = () => {}, c
   await Promise.all(Array.from({ length: Math.min(concurrency, neonEventIds.length) }, worker));
   return { byEvent, failed };
 }
+
+/** Every named Neon account, one worker call per 200. onPage(done, total) reports progress. */
+export async function fetchAllNeonAccounts(onPage) {
+  const out = [];
+  let total = 1;
+  for (let page = 0; page < total; page++) {
+    const r = await neonApi('accounts/page', { method: 'POST', body: JSON.stringify({ page }) });
+    out.push(...r.accounts);
+    total = r.totalPages;
+    onPage?.(page + 1, total);
+  }
+  return out;
+}

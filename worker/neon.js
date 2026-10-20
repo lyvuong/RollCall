@@ -4,6 +4,7 @@
 //   GET  /api/neon/events/:id/registrations     registrations for one event
 //   GET  /api/neon/events/:id/attendees         attendees with markedAttended (check-in) state
 //   POST /api/neon/accounts/search              {name?, email?} -> candidate accounts
+//   POST /api/neon/accounts/page                {page} -> one page (200) of every named account, for the weekly people sync
 // The API key lives in env.NEON_API_KEY and never reaches the browser.
 // Event field names and pagination (currentPage) were verified against a live org; account search
 // field names ("First Name", "Last Name", "Email", "Account ID", "Email 1") still need checking.
@@ -208,6 +209,34 @@ async function handleNeonUncached(request, url, env) {
       }),
     );
     return json({ accounts });
+  }
+
+  if (pathname === '/api/neon/accounts/page' && method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: 'invalid JSON' }, 400);
+    }
+    const page = Number(body?.page);
+    if (!Number.isInteger(page) || page < 0 || page > 1000) return json({ error: 'page must be a whole number' }, 400);
+    const data = await neonFetch(env, '/accounts/search', {
+      method: 'POST',
+      body: JSON.stringify({
+        searchFields: [{ field: 'Account ID', operator: 'GREATER_THAN', value: '0' }],
+        outputFields: ['Account ID', 'First Name', 'Last Name', 'Email 1'],
+        pagination: { currentPage: page, pageSize: PAGE_SIZE },
+      }),
+    });
+    const accounts = (data?.searchResults || [])
+      .map((r) => ({
+        accountId: String(r['Account ID']),
+        firstName: String(r['First Name'] || '').trim(),
+        lastName: String(r['Last Name'] || '').trim(),
+        email: r['Email 1'] || '',
+      }))
+      .filter((a) => a.firstName || a.lastName);
+    return json({ accounts, page, totalPages: data?.pagination?.totalPages ?? 1 });
   }
 
   return json({ error: 'not found' }, 404);

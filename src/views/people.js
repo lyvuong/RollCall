@@ -1,4 +1,4 @@
-import { watchEvent, watchPeople, setAttendance, setRole, addPerson, markRegistrant, saveRegistrants } from '../data.js';
+import { watchEvent, watchPeople, setAttendance, setRole, addPerson, markRegistrant, saveRegistrants, searchNeonPeople, linkPerson } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { fetchNeonRegistrants } from '../lib/neonApi.js';
 import { registrantMap } from '../lib/neon.js';
@@ -13,6 +13,8 @@ export function participantsView(root, ctx, eventId) {
   let event;
   let people = [];
   let q = '';
+  let neonHits = []; // OSG Website people matching q (Firestore neonPeople), fetched as the user types
+  let neonTimer;
   const removed = new Set(); // staged removals, applied on Done
   const roleEdits = new Map(); // staged role changes (id -> role), applied on Done
   const effRole = (id, a) => roleEdits.get(id) || roleOf(a);
@@ -77,6 +79,11 @@ export function participantsView(root, ctx, eventId) {
     const k = KIND[personKind(p.type)];
     return `<span class="badge ${personKind(p.type)}" title="${k.label}">${icon(k.icon)}<span class="wide">${k.label}</span></span>`;
   };
+
+  /** The saved person an OSG Website person stands for: linked by account id, else the same name not yet linked. */
+  const savedFor = (n) =>
+    people.find((p) => p.neonAccountId === n.neonAccountId) ||
+    people.find((p) => !p.neonAccountId && p.name.toLowerCase() === n.name.toLowerCase());
 
   function render() {
     if (event === undefined) return;
@@ -156,10 +163,23 @@ export function participantsView(root, ctx, eventId) {
       res.innerHTML = '';
       return;
     }
-    const hits = people.filter((p) => !att[p.id] && p.name.toLowerCase().includes(term));
+    // OSG Website people come first; a saved person they stand for is shown once, as the OSG Website row.
+    const fromNeon = neonHits.filter((n) => !att[savedFor(n)?.id]);
+    const shownAsNeon = new Set(neonHits.map((n) => savedFor(n)?.id).filter(Boolean));
+    const hits = people.filter((p) => !att[p.id] && !shownAsNeon.has(p.id) && p.name.toLowerCase().includes(term));
     const rows = hits.slice(0, MAX_RESULTS);
     const exact = people.some((p) => p.name.toLowerCase() === term);
     res.innerHTML =
+      fromNeon
+        .map(
+          (n) => `
+        <li class="prow">
+          <span class="nm">${esc(n.name)}${n.email ? ` <span class="muted small">${esc(n.email)}</span>` : ''}</span>
+          <span class="muted small">OSG Website</span>
+          <button type="button" class="ibadge add" data-neon="${esc(n.neonAccountId)}" aria-label="Add ${esc(n.name)}" title="Add">${icon('plus')}</button>
+        </li>`,
+        )
+        .join('') +
       rows
         .map(
           (p) => `
@@ -171,10 +191,10 @@ export function participantsView(root, ctx, eventId) {
         )
         .join('') +
       (hits.length > rows.length ? `<li class="muted small">${hits.length - rows.length} more… keep typing to narrow down.</li>` : '') +
-      (!hits.length && people.some((p) => p.name.toLowerCase().includes(term)) && !exact
+      (!hits.length && !fromNeon.length && people.some((p) => p.name.toLowerCase().includes(term)) && !exact
         ? `<li class="muted small">Everyone matching is already on this event.</li>`
         : '') +
-      (!exact && !people.some((p) => p.name.toLowerCase().includes(term))
+      (!exact && !fromNeon.length && !people.some((p) => p.name.toLowerCase().includes(term))
         ? `<li class="prow newp">
             <span class="nm">New: ${esc(q.trim())}</span>
             <button type="button" class="btn small" data-new="community">${icon('userPlus')} Community</button>
@@ -254,6 +274,24 @@ export function participantsView(root, ctx, eventId) {
         setAttendance(eventId, p, true).catch(fail);
         toast(`${p.name} added as participant · ${Object.keys(att).length + 1} total`);
       }
+    } else if (t.dataset.neon) {
+      const n = neonHits.find((x) => x.neonAccountId === t.dataset.neon);
+      if (n) {
+        let person = savedFor(n);
+        if (person) {
+          if (!person.neonAccountId) linkPerson(person.id, n.neonAccountId).catch(() => toast('Could not link person.'));
+        } else {
+          const created = addPerson(n.name, 'community', { neonAccountId: n.neonAccountId });
+          created.done.catch(() => toast('Could not save person.'));
+          person = created.person;
+        }
+        setAttendance(eventId, person, true).catch(fail);
+        toast(`${n.name} added as participant · ${Object.keys(att).length + 1} total`);
+        q = '';
+        neonHits = [];
+        $('#q', root).value = '';
+        render();
+      }
     } else if (t.dataset.new) {
       const name = q.trim().replace(/\s+/g, ' ');
       if (!name) return;
@@ -269,6 +307,22 @@ export function participantsView(root, ctx, eventId) {
   $('#q', root).oninput = (ev) => {
     q = ev.target.value;
     render();
+    clearTimeout(neonTimer);
+    const asked = q;
+    if (!asked.trim()) {
+      neonHits = [];
+      return;
+    }
+    neonTimer = setTimeout(async () => {
+      try {
+        const hits = await searchNeonPeople(asked);
+        if (q !== asked) return; // typed on since
+        neonHits = hits;
+        render();
+      } catch {
+        /* the list is a bonus: saved people still work without it */
+      }
+    }, 250);
   };
 
   unsubs.push(
@@ -283,5 +337,8 @@ export function participantsView(root, ctx, eventId) {
     }),
   );
 
-  return () => unsubs.forEach((u) => u());
+  return () => {
+    clearTimeout(neonTimer);
+    unsubs.forEach((u) => u());
+  };
 }
