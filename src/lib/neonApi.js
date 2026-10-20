@@ -150,3 +150,17 @@ export async function pushNeonSync(neonEventId, plan, neonEvent) {
   forgetNeonCache();
   return { sent, failed };
 }
+
+const postJson = (body) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+/** OSG Website accounts matching a person's name: [{accountId, firstName, lastName, name, email}]. */
+export async function searchNeonAccounts(name) {
+  const { accounts } = await neonApi('accounts/search', postJson({ name }));
+  return accounts || [];
+}
+
+/** Register an account for an event and mark them attended: resolves the new registration id. */
+export async function createNeonRegistration(neonEventId, { accountId, firstName, lastName }) {
+  const { registrationId } = await neonApi(`events/${encodeURIComponent(neonEventId)}/registrations`, postJson({ accountId, firstName, lastName, attended: true }));
+  return registrationId;
+}

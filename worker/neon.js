@@ -7,6 +7,7 @@
 //   GET  /api/neon/events/:id/sync              fresh event details + attendees (never cached), for sync checks
 //   PATCH /api/neon/events/:id                  {name?, date?, endDate?, startTime?, endTime?, location?} -> event
 //   PATCH /api/neon/registrations/:id/attendance {attendeeId, attended} -> sets markedAttended
+//   POST /api/neon/events/:id/registrations     {accountId, firstName, lastName, attended?} -> registers a walk-in
 // Writes only run against a sandbox org, or when NEON_ALLOW_WRITES=1 (so production stays read-only until enabled).
 // The API key lives in env.NEON_API_KEY and never reaches the browser.
 // Event field names and pagination (currentPage) were verified against a live org; account search
@@ -274,6 +275,33 @@ async function handleNeonUncached(request, url, env) {
     return json({ ok: true });
   }
 
+  const regCreate = /^\/api\/neon\/events\/(\d{1,12})\/registrations$/.exec(pathname);
+  if (regCreate && method === 'POST') {
+    if (!canWrite(env)) return json({ error: 'Sending to the OSG Website is turned off for this site' }, 403);
+    const body = await readJson(request);
+    const accountId = String(body?.accountId || '');
+    const first = String(body?.firstName || '').trim();
+    const last = String(body?.lastName || '').trim();
+    if (!/^\d{1,12}$/.test(accountId) || !first || first.length > 100 || last.length > 100) {
+      return json({ error: 'accountId and firstName required' }, 400);
+    }
+    const res = await neonFetch(env, '/eventRegistrations', {
+      method: 'POST',
+      body: JSON.stringify({
+        eventId: regCreate[1],
+        registrantAccountId: accountId,
+        sendSystemEmail: false,
+        registrationDateTime: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+        registrationAmount: 0,
+        totalCharge: 0,
+        ignoreCapacity: true, // someone standing there is not turned away by a capacity limit
+        tickets: [{ attendees: [{ accountId, firstName: first, lastName: last, markedAttended: body?.attended !== false }] }],
+      }),
+    });
+    await bumpEpoch();
+    return json({ ok: true, registrationId: String(res?.id ?? '') });
+  }
+
   const attWrite = /^\/api\/neon\/registrations\/(\d{1,12})\/attendance$/.exec(pathname);
   if (attWrite && method === 'PATCH') {
     if (!canWrite(env)) return json({ error: 'Sending to the OSG Website is turned off for this site' }, 403);
@@ -300,23 +328,31 @@ async function handleNeonUncached(request, url, env) {
     const name = String(body?.name || '').trim();
     const email = String(body?.email || '').trim();
     if (!name && !email) return json({ error: 'name or email required' }, 400);
-    const searchFields = [];
-    if (email) searchFields.push({ field: 'Email', operator: 'EQUAL', value: email });
+    const find = (searchFields) =>
+      searchAll(
+        env,
+        '/accounts/search',
+        { searchFields, outputFields: ['Account ID', 'First Name', 'Last Name', 'Email 1'] },
+        (r) => ({
+          accountId: String(r['Account ID']),
+          firstName: String(r['First Name'] || '').trim(),
+          lastName: String(r['Last Name'] || '').trim(),
+          name: [r['First Name'], r['Last Name']].filter(Boolean).map((x) => String(x).trim()).join(' '),
+          email: r['Email 1'] || '',
+        }),
+      );
+    const byName = (first, last) => [
+      { field: 'First Name', operator: 'EQUAL', value: first },
+      ...(last ? [{ field: 'Last Name', operator: 'EQUAL', value: last }] : []),
+    ];
+    let accounts;
+    if (email) accounts = await find([{ field: 'Email', operator: 'EQUAL', value: email }]);
     else {
-      const [first, ...rest] = name.split(/\s+/);
-      searchFields.push({ field: 'First Name', operator: 'EQUAL', value: first });
-      if (rest.length) searchFields.push({ field: 'Last Name', operator: 'EQUAL', value: rest.join(' ') });
+      const parts = name.split(/\s+/);
+      accounts = await find(byName(parts[0], parts.slice(1).join(' ')));
+      // "Mary Jane Smith" may be "Mary Smith" in Neon: retry without the middle names.
+      if (!accounts.length && parts.length > 2) accounts = await find(byName(parts[0], parts[parts.length - 1]));
     }
-    const accounts = await searchAll(
-      env,
-      '/accounts/search',
-      { searchFields, outputFields: ['Account ID', 'First Name', 'Last Name', 'Email 1'] },
-      (r) => ({
-        accountId: String(r['Account ID']),
-        name: [r['First Name'], r['Last Name']].filter(Boolean).join(' '),
-        email: r['Email 1'] || '',
-      }),
-    );
     return json({ accounts });
   }
 

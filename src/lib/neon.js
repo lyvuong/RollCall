@@ -17,6 +17,18 @@ export function inferFormat(name) {
   return virtual ? 'virtual' : 'in-person';
 }
 
+/**
+ * Start and end ('HH:MM') for a Neon event. Neon events may lack times; the rules need end > start, so a missing
+ * start becomes 09:00 and a missing or backwards end becomes a one-hour slot.
+ */
+export function neonSlot(n) {
+  let start = parseTime(n.startTime) || DEFAULT_START;
+  let end = parseTime(n.endTime);
+  if (!end || toMinutes(end) <= toMinutes(start)) end = hhmm(Math.min(toMinutes(start) + 60, 23 * 60 + 59));
+  if (toMinutes(end) <= toMinutes(start)) start = hhmm(toMinutes(end) - 1);
+  return { start, end };
+}
+
 /** Registrants not already stored in `current`, as the Firestore map {attendeeId: {name, accountId, status:'pending'}}. */
 export function registrantMap(list, current) {
   const out = {};
@@ -84,11 +96,7 @@ export function planNeonEvents(neonEvents, existing, newId, registrants = {}) {
     if (seen.has(id)) { row('skip', 'Duplicate in Neon results', label); continue; }
     seen.add(id);
 
-    let start = parseTime(n.startTime) || DEFAULT_START;
-    let end = parseTime(n.endTime);
-    // Neon events may lack times; the rules need end > start, so default to a one-hour slot.
-    if (!end || toMinutes(end) <= toMinutes(start)) end = hhmm(Math.min(toMinutes(start) + 60, 23 * 60 + 59));
-    if (toMinutes(end) <= toMinutes(start)) start = hhmm(toMinutes(end) - 1);
+    const { start, end } = neonSlot(n);
 
     if (byNeon.has(id)) {
       const regs = newRegistrants(id, byNeon.get(id).registrants);

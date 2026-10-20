@@ -161,9 +161,18 @@ describe('registrations and accounts', () => {
       ok({ searchResults: [{ 'Account ID': 7, 'First Name': 'Ada', 'Last Name': 'Lovelace', 'Email 1': 'a@x.org' }] }),
     );
     const res = await call('/api/neon/accounts/search', { method: 'POST', body: JSON.stringify({ name: 'Ada Lovelace' }) });
-    expect((await res.json()).accounts).toEqual([{ accountId: '7', name: 'Ada Lovelace', email: 'a@x.org' }]);
+    expect((await res.json()).accounts).toEqual([{ accountId: '7', firstName: 'Ada', lastName: 'Lovelace', name: 'Ada Lovelace', email: 'a@x.org' }]);
     const sent = JSON.parse(neonCalls[0].init.body);
     expect(sent.searchFields.map((f) => f.field)).toEqual(['First Name', 'Last Name']);
+  });
+
+  it('retries without middle names when the full name finds nobody', async () => {
+    let n = 0;
+    mockFetch(() => ok(n++ === 0 ? { searchResults: [] } : { searchResults: [{ 'Account ID': 8, 'First Name': 'Mary', 'Last Name': 'Smith' }] }));
+    const res = await call('/api/neon/accounts/search', { method: 'POST', body: JSON.stringify({ name: 'Mary Jane Smith' }) });
+    expect((await res.json()).accounts.map((a) => a.accountId)).toEqual(['8']);
+    const second = JSON.parse(neonCalls[1].init.body);
+    expect(second.searchFields.map((f) => f.value)).toEqual(['Mary', 'Smith']);
   });
 
   it('requires a name or email', async () => {
@@ -246,5 +255,28 @@ describe('writes', () => {
     expect((await patch('/api/neon/events/5', { date: '10/20/2026' })).status).toBe(400);
     expect((await patch('/api/neon/events/5', { startTime: '5pm' })).status).toBe(400);
     expect((await patch('/api/neon/events/5', { name: '   ' })).status).toBe(400);
+  });
+});
+
+describe('walk-in registration', () => {
+  const post = (body, e = SANDBOX) =>
+    call('/api/neon/events/42/registrations', { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }, e);
+
+  it('creates a registration already marked attended', async () => {
+    mockFetch(() => ok({ id: 77 }));
+    const res = await post({ accountId: '1371', firstName: 'Donna', lastName: 'Budway' });
+    expect(await res.json()).toEqual({ ok: true, registrationId: '77' });
+    expect(neonCalls[0].url).toBe('https://api.neoncrm.com/v2/eventRegistrations');
+    const sent = JSON.parse(neonCalls[0].init.body);
+    expect(sent).toMatchObject({ eventId: '42', registrantAccountId: '1371', totalCharge: 0, ignoreCapacity: true, sendSystemEmail: false });
+    expect(sent.registrationDateTime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    expect(sent.tickets[0].attendees[0]).toEqual({ accountId: '1371', firstName: 'Donna', lastName: 'Budway', markedAttended: true });
+  });
+
+  it('refuses on a live org unless enabled, and validates the body', async () => {
+    expect((await post({ accountId: '1', firstName: 'A' }, env)).status).toBe(403);
+    expect(neonCalls).toHaveLength(0);
+    expect((await post({ accountId: 'x', firstName: 'A' })).status).toBe(400);
+    expect((await post({ accountId: '1', firstName: '  ' })).status).toBe(400);
   });
 });

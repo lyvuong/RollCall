@@ -1,6 +1,8 @@
 import { watchEvents, watchLocations, watchAllPhotos, loadExisting, newId, commitOps } from '../data.js';
 import { fetchNeonEvents, readNeonCache, fetchRegistrantsFor } from '../lib/neonApi.js';
 import { neonOnlyEvents, planNeonEvents, neonSyncPlan } from '../lib/neon.js';
+import { similarNeonEvents } from '../lib/neonMerge.js';
+import { openMergeDialog } from './neonMerge.js';
 import { photoUrl } from '../lib/photos.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
@@ -187,6 +189,13 @@ export function homeView(root, _ctx) {
     </div>`;
   }
 
+  /** The likeliest OSG Website twin of a RollCall-only event, or null. Uses the Neon list already on screen. */
+  function osgTwin(e) {
+    if (e.neonEventId || e.duplicateOf || !neonRaw.length) return null;
+    const taken = new Set(events.filter((x) => x.neonEventId).map((x) => String(x.neonEventId)));
+    return similarNeonEvents(e, neonRaw, { locationName: e.locationId ? locations[e.locationId] : '', takenIds: taken })[0] || null;
+  }
+
   /** How many compared things differ from the OSG Website for this event (0 = in sync or not yet known). */
   function unsyncedCount(e) {
     if (!e.neonEventId) return 0;
@@ -233,6 +242,8 @@ export function homeView(root, _ctx) {
             <strong>${esc(e.name)}</strong>
           </span>
           <span class="badges">
+            ${e.duplicateOf ? `<a class="badge unsynced" href="#/event/${esc(e.duplicateOf)}" title="Duplicate: its roll was moved to the original event. Tap to open the original. You can delete this one." aria-label="${esc(e.name)} is a duplicate. Open the original.">${icon('copy')}<span class="wide">Duplicate</span></a>` : ''}
+            ${osgTwin(e) ? `<button type="button" class="badge unsynced merge-hint" data-merge="${esc(e.id)}" title="This may already be on the OSG Website. Tap to find it and merge." aria-label="${esc(e.name)} may already be on the OSG Website. Tap to merge.">${icon('swap')}<span class="wide">On OSG?</span></button>` : ''}
             ${unsyncedCount(e) ? `<span class="badge unsynced" title="${unsyncedCount(e)} difference${unsyncedCount(e) === 1 ? '' : 's'} from the OSG Website. Open the event to review and send.">${icon('alert')}<span class="wide">Out of sync</span></span>` : ''}
             ${e.neonEventId ? `<span class="badge neon done" title="Imported from the OSG Website">${icon('check')}<span class="wide">OSG</span></span>` : ''}
             <span class="badge ${esc(e.format)}" title="${f.tip}">${icon(f.icon)}<span class="wide">${f.label}</span></span>
@@ -341,6 +352,11 @@ export function homeView(root, _ctx) {
   $('#list', root).onclick = (ev) => {
     const imp = ev.target.closest('.neon-import');
     if (imp) return importNeon(imp);
+    const mrg = ev.target.closest('.merge-hint');
+    if (mrg) {
+      const e = events.find((x) => x.id === mrg.dataset.merge);
+      return e && openMergeDialog({ event: e, locationName: e.locationId ? locations[e.locationId] || '' : '' });
+    }
     if (ev.target.closest('a,button')) return;
     const card = ev.target.closest('[data-id]');
     if (!card) return;
