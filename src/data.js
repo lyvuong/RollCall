@@ -169,6 +169,12 @@ export async function deleteEvents(ids) {
   }
 }
 
+/**
+ * After its roll and volunteer hours were moved into `targetId`: flag the event as a duplicate and empty it, so
+ * nothing is counted twice. Nothing is deleted; staff remove it when they are ready.
+ */
+export const markDuplicate = (id, targetId) => updateDoc(doc(db, 'events', id), { duplicateOf: targetId, attendees: {}, volunteerHours: 0 });
+
 export function deleteEvent(id) {
   return deleteDoc(doc(db, 'events', id));
 }
