@@ -110,7 +110,38 @@ const normalizeAttendee = (a) => ({
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+const CACHE_SECONDS = 300;
+const cacheable = (method, pathname) =>
+  method === 'GET' && (pathname === '/api/neon/events' || /^\/api\/neon\/events\/\d+\/(attendees|registrations)$/.test(pathname));
+
+/**
+ * Neon allows one event search per second, so successful event lists and attendee lists are shared for a few
+ * minutes through the Workers cache (every staff member and tab reuses one Neon call). Callers are already
+ * authenticated by worker/index.js. Where the Cache API is missing (tests, some hosts) it simply passes through.
+ */
 export async function handleNeon(request, url, env) {
+  const cache = cacheable(request.method, url.pathname) ? globalThis.caches?.default : null;
+  const key = new Request(url.toString(), { method: 'GET' });
+  try {
+    const hit = await cache?.match(key);
+    if (hit) return hit;
+  } catch {
+    /* cache unavailable: fall through to Neon */
+  }
+  const res = await handleNeonUncached(request, url, env);
+  if (cache && res.status === 200) {
+    const copy = new Response(res.clone().body, res);
+    copy.headers.set('Cache-Control', `public, max-age=${CACHE_SECONDS}`);
+    try {
+      await cache.put(key, copy);
+    } catch {
+      /* best effort */
+    }
+  }
+  return res;
+}
+
+async function handleNeonUncached(request, url, env) {
   const { pathname } = url;
   const method = request.method;
 

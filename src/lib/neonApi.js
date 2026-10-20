@@ -15,11 +15,13 @@ export async function neonApi(path, init = {}) {
 
 const CACHE_KEY = 'rollcall.neonEvents.v1';
 const CACHE_MAX = 12; // ranges kept
+const FRESH_MS = 5 * 60_000; // a cached range this young is used without asking Neon again
 
 /** Last good Neon result per date range, so the list still shows them offline or when Neon is down. */
-export function readNeonCache(from, to) {
+export function readNeonCache(from, to, maxAgeMs = Infinity) {
   try {
-    return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}')[`${from}|${to}`]?.events || null;
+    const hit = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}')[`${from}|${to}`];
+    return hit && Date.now() - hit.at <= maxAgeMs ? hit.events : null;
   } catch {
     return null;
   }
@@ -38,6 +40,8 @@ export function writeNeonCache(from, to, events) {
 
 /** Neon events for a range; resolves null (never throws) when Neon is unreachable or not configured. */
 export async function fetchNeonEvents(from, to) {
+  const fresh = readNeonCache(from, to, FRESH_MS);
+  if (fresh) return fresh;
   try {
     const { events } = await neonApi(`events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
     writeNeonCache(from, to, events);
@@ -54,6 +58,16 @@ const CANCELLED = /cancel|fail|refund|declin/i;
  * left out. Throws when Neon is unreachable.
  */
 export async function fetchNeonRegistrants(neonEventId) {
+  const memo = REG_MEMO.get(String(neonEventId));
+  if (memo && Date.now() - memo.at < FRESH_MS) return memo.list;
+  const list = await loadRegistrants(neonEventId);
+  REG_MEMO.set(String(neonEventId), { list, at: Date.now() });
+  return list;
+}
+
+const REG_MEMO = new Map(); // neonEventId -> {list, at}, for this page session
+
+async function loadRegistrants(neonEventId) {
   const { attendees } = await neonApi(`events/${encodeURIComponent(neonEventId)}/attendees`);
   const seen = new Set();
   return (attendees || []).filter((a) => {
