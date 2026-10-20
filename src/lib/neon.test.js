@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planNeonEvents, neonOnlyEvents } from './neon.js';
+import { planNeonEvents, neonOnlyEvents, inferFormat } from './neon.js';
 
 let n = 0;
 const newId = (col) => `${col}-${++n}`;
@@ -118,5 +118,21 @@ describe('neonOnlyEvents', () => {
 
   it('copes with no Neon data', () => {
     expect(neonOnlyEvents(null, [local()])).toEqual([]);
+  });
+});
+
+describe('inferFormat', () => {
+  it('reads the format OSG puts in the event name', () => {
+    expect(inferFormat('Book Club (Virtual)')).toBe('virtual');
+    expect(inferFormat('Book Club (Virtual/Hybrid)')).toBe('both');
+    expect(inferFormat('Dinner Club (In-person)')).toBe('in-person');
+    expect(inferFormat('Fun (Virtual and In Person)')).toBe('both');
+    expect(inferFormat('Explore DC')).toBe('in-person');
+  });
+
+  it('creates virtual events without a location', () => {
+    const plan = planNeonEvents([ev({ name: 'Club (Virtual)', location: 'Zoom' })], none, newId);
+    expect(plan.ops[0].data).toMatchObject({ format: 'virtual', locationId: null });
+    expect(plan.ops.some((o) => o.col === 'locations')).toBe(false);
   });
 });

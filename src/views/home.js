@@ -210,7 +210,7 @@ export function homeView(root, _ctx) {
         </div>
         <div class="stats">
           <span class="pill vol" title="Volunteers">${icon('heart')}<b>${volunteers}</b><span class="wide">volunteer${volunteers === 1 ? '' : 's'}</span></span>
-          ${registered ? `<span class="pill reg" title="Registered on the OSG Website">${icon('userPlus')}<b>${registered}</b><span class="wide">registered</span></span>` : ''}
+          ${registered ? `<span class="pill reg" title="Registered on the OSG Website">${icon('file')}<b>${registered}</b><span class="wide">registered</span></span>` : ''}
           <span class="pill mem" title="Participants">${icon('users')}<b>${participants}</b><span class="wide">participant${participants === 1 ? '' : 's'}</span></span>
           <span class="pill hrs" title="Total volunteer hours">${icon('hourglass')}<b>${formatHours(totalVolunteerHours(e))}</b> hrs</span>
           ${needsVolunteers(e) ? `<span class="pill warn" title="Recorded hours, but no volunteers identified">${icon('alert')}<span class="wide">Assign volunteers</span></span>` : ''}
@@ -233,7 +233,10 @@ export function homeView(root, _ctx) {
       <article class="card event neon ${e.date < ymd() ? 'past' : e.date === ymd() ? 'today' : 'future'}" data-neon="${esc(e.neonEventId)}">
         <div class="row">
           <span class="ttl"><strong>${esc(e.name)}</strong></span>
+          <span class="badges">
+          <span class="badge ${esc(e.format)}" title="${FORMAT[e.format].tip}">${icon(FORMAT[e.format].icon)}<span class="wide">${FORMAT[e.format].label}</span></span>
           <button type="button" class="badge neon neon-import" data-nid="${esc(e.neonEventId)}" title="This event is created in OSG Website, tap to open" aria-label="${esc(e.name)}: this event is created in OSG Website, tap to open">${icon('download')}<span class="wide">OSG</span></button>
+          </span>
         </div>
         <div class="meta">${time}${e.location ? `<span>${icon('pin')}${esc(e.location)}</span>` : ''}</div>
       </article>`;

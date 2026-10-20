@@ -5,6 +5,18 @@ const lower = (s) => String(s || '').trim().toLowerCase();
 const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 const DEFAULT_START = '09:00';
 
+/**
+ * OSG names its events with the format, e.g. "Book Club (Virtual)" or "Dinner Club (In-person)"; Neon has no
+ * usable format field. Returns 'virtual' | 'both' | 'in-person' (the default when the name says nothing).
+ */
+export function inferFormat(name) {
+  const t = String(name || '').toLowerCase();
+  const virtual = /virtual|online|zoom|webinar/.test(t);
+  const person = /in[- ]?person/.test(t);
+  if (/hybrid/.test(t) || (virtual && person)) return 'both';
+  return virtual ? 'virtual' : 'in-person';
+}
+
 /** Registrants not already stored in `current`, as the Firestore map {attendeeId: {name, accountId, status:'pending'}}. */
 export function registrantMap(list, current) {
   const out = {};
@@ -98,10 +110,11 @@ export function planNeonEvents(neonEvents, existing, newId, registrants = {}) {
     }
     const regs = newRegistrants(id);
     const added = Object.keys(regs).length;
+    const format = inferFormat(name);
     ops.push({
       col: 'events',
       id: newId('events'),
-      data: { name, description: '', date, startTime: start, endTime: end, format: 'in-person', locationId: locationFor(n.location), attendees: {}, neonEventId: id, ...(added ? { registrants: regs } : {}) },
+      data: { name, description: '', date, startTime: start, endTime: end, format, locationId: format === 'virtual' ? null : locationFor(n.location), attendees: {}, neonEventId: id, ...(added ? { registrants: regs } : {}) },
     });
     stats.created++;
     row('ok', `new event${added ? ` · ${added} registered name${added === 1 ? '' : 's'}` : ''}`, label);
@@ -128,7 +141,7 @@ export function neonOnlyEvents(neonEvents, events) {
     seen.add(id);
     const start = parseTime(n.startTime) || DEFAULT_START;
     if (keys.has(`${lower(name)}|${date}|${start}`)) continue;
-    out.push({ ...n, neonEventId: id, name, date, startTime: parseTime(n.startTime) || '', endTime: parseTime(n.endTime) || '' });
+    out.push({ ...n, neonEventId: id, name, format: inferFormat(name), date, startTime: parseTime(n.startTime) || '', endTime: parseTime(n.endTime) || '' });
   }
   return out.sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime) || a.name.localeCompare(b.name));
 }

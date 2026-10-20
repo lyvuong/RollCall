@@ -66,7 +66,7 @@ export function participantsView(root, ctx, eventId) {
       </section>
       <section class="card">
         <h2 id="listTitle">${icon('users')} Participants</h2>
-        ${selfName ? `<div class="selfrow"><button type="button" class="btn small" id="selfToggle" aria-pressed="false">${icon('heart')} <span>Include myself</span> <span class="muted">(${esc(selfName)})</span></button></div>` : ''}
+        ${selfName ? `<div class="selfrow"><button type="button" class="btn small" id="selfToggle" aria-pressed="false">${icon('heart')} <span>Include myself</span></button></div>` : ''}
         <p class="legend tiny"><span class="osg">OSG</span><span class="community">Community</span><span class="vol">${icon('heart')} Volunteer</span></p>
         <div id="current" class="inl"></div>
         <button type="button" id="done" class="btn primary block">Done</button>

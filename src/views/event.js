@@ -50,9 +50,9 @@ export function eventView(root, _ctx, eventId) {
           <label class="field"><span class="lbl">${icon('calendar')} Date</span>
             <input id="date" type="date" class="input" required /></label>
           <label class="field"><span class="lbl">${icon('clock')} Start</span>
-            <input id="start" type="time" class="input" required /></label>
+            <input id="start" type="time" step="900" class="input" required /></label>
           <label class="field"><span class="lbl">${icon('clock')} End</span>
-            <input id="end" type="time" class="input" required /></label>
+            <input id="end" type="time" step="900" class="input" required /></label>
         </div>
         <div class="grid2">
         <label class="field"><span class="lbl">${icon('globe')} Format</span>

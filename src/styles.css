@@ -540,5 +540,5 @@ button.badge.neon-import:disabled { opacity: .6; cursor: wait; }
 
 /* Neon registrants: the chosen answer is filled in */
 .prow .btn.small.danger[aria-pressed="true"] { background: var(--rose-bg); color: var(--rose-ink); border-color: transparent; }
-.pill.reg { background: var(--sky-bg); color: var(--sky-ink); }
+.pill.reg { background: var(--mint-bg); color: var(--mint-ink); }
 .selfrow { margin: 0 0 10px; }
