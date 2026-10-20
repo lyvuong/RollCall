@@ -15,6 +15,7 @@ import { participantsView } from './views/people.js';
 import { settingsView } from './views/settings.js';
 import { importView } from './views/import.js';
 import { neonView } from './views/neon.js';
+import { neonApi } from './lib/neonApi.js';
 import { aboutView } from './views/about.js';
 import { reportView } from './views/report.js';
 import { photosView } from './views/photos.js';
@@ -219,6 +220,7 @@ function renderShell() {
       <a href="#/" class="brand">${logo(36)}<span>OSG Activity Roll Call</span></a>
       <nav class="topnav" aria-label="Main">${navHtml}</nav>
       <span class="spacer"></span>
+      <span class="env-badge" id="envBadge" hidden title="Connected to the Neon One sandbox, not live data">Sandbox</span>
       <button class="icon-btn" id="themeBtn" type="button"></button>
     </header>
     <div id="offline" class="offline" role="status" hidden>${icon('cloudOff')} Offline — changes will sync when you reconnect.</div>
@@ -228,6 +230,20 @@ function renderShell() {
   $('#themeBtn').onclick = toggleTheme;
   themeButton();
   syncOffline();
+  flagSandbox();
+}
+
+/** Show a badge (and tab-title prefix) when the Worker is wired to the Neon One sandbox. Silent on failure. */
+async function flagSandbox() {
+  try {
+    const { sandbox } = await neonApi('info');
+    if (!sandbox) return;
+    $('#envBadge').hidden = false;
+    document.body.classList.add('sandbox');
+    if (!document.title.startsWith('[Sandbox]')) document.title = `[Sandbox] ${document.title}`;
+  } catch {
+    /* no Worker (plain vite dev) or not signed in: no badge */
+  }
 }
 window.addEventListener('themechange', themeButton);
 

@@ -1,8 +1,9 @@
-import { watchEvent, watchPeople, setAttendance, setRole, addPerson, markRegistrant, saveRegistrants } from '../data.js';
+import { watchEvent, watchLocations, watchPeople, setAttendance, setRole, addPerson, markRegistrant, saveRegistrants } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { fetchNeonRegistrants } from '../lib/neonApi.js';
 import { registrantMap } from '../lib/neon.js';
 import { icon } from '../lib/icons.js';
+import { mountNeonSync } from './neonSync.js';
 import { countRoles, personKind, roleOf, formatDay, eventHours, formatHours, totalVolunteerHours } from '../lib/time.js';
 
 const KIND = { osg: { label: 'OSG', icon: 'star' }, community: { label: 'Community', icon: 'users' } };
@@ -47,7 +48,10 @@ export function participantsView(root, ctx, eventId) {
   root.innerHTML = `
     <section class="bar">
       <a class="btn ghost" href="#/">${icon('back')} Events</a>
-      <a class="btn ghost" href="#/event/${esc(eventId)}">${icon('edit')} Event details</a>
+      <span class="bar-actions">
+        <span id="syncSlot" class="sync-slot"></span>
+        <a class="btn ghost" href="#/event/${esc(eventId)}">${icon('edit')} Event details</a>
+      </span>
     </section>
     <p id="state" class="muted">Loading…</p>
     <div id="body" hidden>
@@ -271,7 +275,17 @@ export function participantsView(root, ctx, eventId) {
     render();
   };
 
+  let locations = [];
+  const sync = mountNeonSync($('#syncSlot', root), {
+    getEvent: () => event,
+    getLocationName: () => locations.find((l) => l.id === event?.locationId)?.name || '',
+  });
+
   unsubs.push(
+    watchLocations((rows) => {
+      locations = rows;
+      sync.update();
+    }),
     watchPeople((rows) => {
       people = rows;
       peopleLoaded = true;
@@ -280,8 +294,9 @@ export function participantsView(root, ctx, eventId) {
     watchEvent(eventId, (e) => {
       event = e;
       render();
+      sync.update();
     }),
   );
 
-  return () => unsubs.forEach((u) => u());
+  return () => (sync.destroy(), unsubs.forEach((u) => u()));
 }

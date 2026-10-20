@@ -1,0 +1,29 @@
+Subject: API: PATCH /eventRegistrations/{id} fails with "Event coupon code is invalid" (14014) when couponCode is an empty string
+
+Hello Amy,
+
+Thank you for your help so far. As a follow-up to our earlier exchange, we are building an integration that marks event attendees as attended (markedAttended) through the v2 API. Updating a registration works for most registrations, but fails for registrations whose stored couponCode is an empty string. Could you tell us how to update those?
+
+Organization: ourstompingground (also reproduced in our sandbox, ourstompinggroundsandbox)
+API version: NEON-API-VERSION 2.11 (2.10 and 2.12 behave the same)
+
+Works (registration created by bulk import, couponCode is null):
+  PATCH /v2/eventRegistrations/515
+  {"tickets":[{"attendees":[{"attendeeId":415,"markedAttended":false}]}]}
+  -> 200
+
+Fails (registration created through the online form; GET returns "couponCode": ""):
+  PATCH /v2/eventRegistrations/16883
+  {"tickets":[{"attendees":[{"attendeeId":23127,"markedAttended":false}]}]}
+  -> 400 [{"code":"14014","message":"Event coupon code is invalid."}]
+
+Sending couponCode as null, as "", or as another value, or using a full PUT, fails with 14014 or 1114 ("You cannot modify Event Registration couponCode."). We tested 46 registrations across nine events held on Oct 19-20, 2026: all have an empty couponCode and all fail. Online-form registrations whose couponCode is null update normally (we tested older ones from 2025 and some from 2026), as do bulk-imported ones. The attached file lists everything we tried.
+
+Questions:
+1. How can an integration set markedAttended on a registration whose stored couponCode is an empty string?
+2. Is there an attendee-level check-in endpoint that avoids re-validating the registration?
+3. Is the empty-string couponCode on form registrations expected, and can the validation treat it as "no coupon"?
+
+Thank you,
+Ly Vuong
+OSG Software Developer

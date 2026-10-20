@@ -181,6 +181,12 @@ NEON_API_KEY=your-api-key
 FIREBASE_PROJECT_ID=your-firebase-project-id
 ```
 
+### Sandbox vs. live
+
+Local work (`npm run cf:preview`) reads `.dev.vars`, which points at the Neon One **sandbox** org (`ourstompinggroundsandbox`), so debugging and new features, including future write flows, never touch live data. Generate an API key in the sandbox org (Settings → Developer → API keys) and paste it as `NEON_API_KEY`.
+
+The live org's values are kept in `.dev.vars.production` (also git-ignored). To run locally against live, read-only checks only, copy it over `.dev.vars` and restore the sandbox values afterwards. Cloudflare **Production** keeps the live org; to test a deployed build against the sandbox, set the sandbox values on the **Preview** tab instead.
+
 Do **not** set `NEON_BASE_URL` (in `.dev.vars` or Cloudflare). The default `https://api.neoncrm.com/v2` is correct, and a wrong value, such as the documentation site, would send your credentials to the wrong host.
 
 | Route | Description |

@@ -7,6 +7,7 @@ import {
   fetchRecentEvents,
 } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
+import { mountNeonSync } from './neonSync.js';
 import { icon } from '../lib/icons.js';
 import { ymd, eventHours, countRoles, totalVolunteerHours, personKind, roleOf, needsVolunteers, formatHours, formatTime } from '../lib/time.js';
 
@@ -32,6 +33,7 @@ export function eventView(root, _ctx, eventId) {
   root.innerHTML = `
     <section class="bar">
       <a class="btn ghost" href="#/">${icon('back')} Events</a>
+      <span id="syncSlot" class="sync-slot"></span>
     </section>
     <h1 id="title" class="evt-title" ${isNew ? '' : 'hidden'}>${isNew ? 'New event' : 'Event'}</h1>
     <p id="state" class="muted">${isNew ? '' : 'Loading…'}</p>
@@ -289,10 +291,18 @@ export function eventView(root, _ctx, eventId) {
 
   /* ----- subscriptions ----- */
 
+  const sync = isNew
+    ? null
+    : mountNeonSync($('#syncSlot', root), {
+        getEvent: () => event,
+        getLocationName: () => locations.find((l) => l.id === event?.locationId)?.name || '',
+      });
+
   unsubs.push(
     watchLocations((rows) => {
       locations = rows;
       if (formReady || isNew) renderLocations();
+      sync?.update();
     }),
   );
 
@@ -318,9 +328,10 @@ export function eventView(root, _ctx, eventId) {
         }
         showBody();
         renderSummary();
+        sync?.update();
       }),
     );
   }
 
-  return () => unsubs.forEach((u) => u());
+  return () => (sync?.destroy(), unsubs.forEach((u) => u()));
 }

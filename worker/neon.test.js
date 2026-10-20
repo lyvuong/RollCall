@@ -33,6 +33,24 @@ function mockFetch(handler) {
 
 beforeEach(() => mockFetch(() => ok({})));
 
+describe('neon info', () => {
+  it('flags a sandbox org without calling Neon', async () => {
+    const res = await call('/api/neon/info', {}, { ...env, NEON_ORG_ID: 'ourstompinggroundsandbox' });
+    expect(await res.json()).toEqual({ org: 'ourstompinggroundsandbox', sandbox: true, canWrite: true });
+    expect(neonCalls).toHaveLength(0);
+  });
+
+  it('reports a live org as not sandbox', async () => {
+    const info = await (await call('/api/neon/info')).json();
+    expect(info.sandbox).toBe(false);
+    expect(info.canWrite).toBe(false);
+  });
+
+  it('allows writes on a live org only when NEON_ALLOW_WRITES=1', async () => {
+    expect((await (await call('/api/neon/info', {}, { ...env, NEON_ALLOW_WRITES: '1' })).json()).canWrite).toBe(true);
+  });
+});
+
 describe('neon proxy auth', () => {
   it('requires a valid token', async () => {
     const res = await worker.fetch(new Request('https://app.test/api/neon/status'), env);
@@ -166,5 +184,67 @@ describe('neonFetch', () => {
   it('surfaces a persistent 429', async () => {
     globalThis.fetch = vi.fn(async () => ok({}, 429));
     await expect(neonFetch(env, '/x', {}, { retries: 1, wait: async () => {} })).rejects.toMatchObject({ status: 429 });
+  });
+});
+
+const SANDBOX = { ...env, NEON_ORG_ID: 'ourstompinggroundsandbox' };
+const patch = (path, body, e = SANDBOX) =>
+  call(path, { method: 'PATCH', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }, e);
+
+describe('sync snapshot', () => {
+  it('returns the event (24h times) and attendees, fresh from Neon', async () => {
+    mockFetch((url) =>
+      url.endsWith('/events/5')
+        ? ok({ id: '5', name: ' Walk ', eventDates: { startDate: '2026-10-20', endDate: '2026-10-20', startTime: '05:30 PM', endTime: null }, location: { name: 'Cadence' } })
+        : ok({ pagination: { totalPages: 1 }, attendees: [{ attendeeId: 1, registrationId: 9, firstName: 'Ada', lastName: 'L', markedAttended: true }] }),
+    );
+    const body = await (await call('/api/neon/events/5/sync')).json();
+    expect(body.event).toMatchObject({ neonEventId: '5', date: '2026-10-20', startTime: '17:30', endTime: '', location: 'Cadence' });
+    expect(body.attendees[0]).toMatchObject({ attendeeId: '1', registrationId: '9', markedAttended: true });
+  });
+});
+
+describe('writes', () => {
+  it('refuses to write to a live org unless enabled', async () => {
+    expect((await patch('/api/neon/events/5', { name: 'x' }, env)).status).toBe(403);
+    expect((await patch('/api/neon/registrations/9/attendance', { attendeeId: 1, attended: true }, env)).status).toBe(403);
+    expect(neonCalls).toHaveLength(0);
+  });
+
+  it('marks an attendee attended with the ticket/attendee shape Neon expects', async () => {
+    mockFetch(() => ok({ id: 9 }));
+    const res = await patch('/api/neon/registrations/9/attendance', { attendeeId: '415', attended: false });
+    expect(res.status).toBe(200);
+    expect(neonCalls[0].url).toBe('https://api.neoncrm.com/v2/eventRegistrations/9');
+    expect(neonCalls[0].init.method).toBe('PATCH');
+    expect(JSON.parse(neonCalls[0].init.body)).toEqual({ tickets: [{ attendees: [{ attendeeId: 415, markedAttended: false }] }] });
+  });
+
+  it('validates attendance bodies', async () => {
+    expect((await patch('/api/neon/registrations/9/attendance', { attendeeId: 'x', attended: true })).status).toBe(400);
+    expect((await patch('/api/neon/registrations/9/attendance', { attendeeId: 1, attended: 'yes' })).status).toBe(400);
+  });
+
+  it('sends event dates whole, in 12-hour format, filling gaps from the current event', async () => {
+    mockFetch((url, init) =>
+      init?.method === 'PATCH'
+        ? ok({ id: '5' })
+        : ok({ id: '5', eventDates: { startDate: '2026-10-20', endDate: '2026-10-20', startTime: '09:00 AM', endTime: '10:00 AM' } }),
+    );
+    const res = await patch('/api/neon/events/5', { name: ' New name ', location: 'Cadence', date: '2026-10-21', endTime: '17:30' });
+    expect(res.status).toBe(200);
+    const sent = JSON.parse(neonCalls.find((c) => c.init?.method === 'PATCH').init.body);
+    expect(sent).toEqual({
+      name: 'New name',
+      location: { name: 'Cadence' },
+      eventDates: { startDate: '2026-10-21', endDate: '2026-10-21', startTime: '09:00 AM', endTime: '05:30 PM' },
+    });
+  });
+
+  it('validates event patches', async () => {
+    expect((await patch('/api/neon/events/5', {})).status).toBe(400);
+    expect((await patch('/api/neon/events/5', { date: '10/20/2026' })).status).toBe(400);
+    expect((await patch('/api/neon/events/5', { startTime: '5pm' })).status).toBe(400);
+    expect((await patch('/api/neon/events/5', { name: '   ' })).status).toBe(400);
   });
 });
