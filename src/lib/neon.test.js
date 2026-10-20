@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planNeonEvents, neonOnlyEvents, inferFormat, emptyPastNeonEvents, neonSyncPlan, neonEventPatch } from './neon.js';
+import { planNeonEvents, neonOnlyEvents, inferFormat, emptyPastNeonEvents, neonSyncPlan, neonEventPatch, friendlyNeonReason } from './neon.js';
 
 describe('emptyPastNeonEvents', () => {
   it('keeps only past imported events nobody used', () => {
@@ -202,5 +202,14 @@ describe('neonEventPatch', () => {
     const d = [{ field: 'date', local: '2026-10-21' }];
     expect(neonEventPatch(d, { date: '2026-10-20', endDate: '2026-10-20' })).toEqual({ date: '2026-10-21', endDate: '2026-10-21' });
     expect(neonEventPatch(d, { date: '2026-10-20', endDate: '2026-10-22' })).toEqual({ date: '2026-10-21' });
+  });
+});
+
+describe('friendlyNeonReason', () => {
+  it('explains the form-registration coupon rejection', () => {
+    expect(friendlyNeonReason('Neon One 400: [{"code":"14014","message":"Event coupon code is invalid."}]')).toMatch(/online form/);
+  });
+  it('strips the prefix from other errors', () => {
+    expect(friendlyNeonReason('Neon One 400: Something else')).toBe('Something else');
   });
 });

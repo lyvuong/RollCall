@@ -23,6 +23,7 @@ export function mountNeonSync(host, { getEvent, getLocationName }) {
   let seq = 0;
   let dlg = null;
   let sending = false;
+  let failures = []; // [{name, reason}] from the last send, shown in the dialog until the next one
 
   const signature = () => {
     const e = getEvent();
@@ -109,6 +110,10 @@ export function mountNeonSync(host, { getEvent, getLocationName }) {
     const names = (list) => list.map((c) => esc(c.name)).join(', ');
     const here = (plan?.checkins || []).filter((c) => c.attended);
     const notHere = (plan?.checkins || []).filter((c) => !c.attended);
+    const reasons = [...new Set(failures.map((f) => f.reason))];
+    const failHtml = failures.length
+      ? `<div class="notice warn">${icon('alert')} <span><b>${failures.length} could not be sent</b> (${esc(failures.slice(0, 5).map((f) => f.name).join(', '))}${failures.length > 5 ? '…' : ''}).<br>${reasons.map(esc).join('<br>')}</span></div>`
+      : '';
     const body =
       state === 'checking' && !plan
         ? '<p class="muted">Checking the OSG Website…</p>'
@@ -123,6 +128,7 @@ export function mountNeonSync(host, { getEvent, getLocationName }) {
       <form method="dialog" class="sync-body">
         <h2>${icon('sync')} ${esc(e?.name || 'Event')}</h2>
         <p class="muted tiny">RollCall is the source: these changes would be sent to the OSG Website.${info?.sandbox ? ' <b>Sandbox, not live data.</b>' : ''}</p>
+        ${failHtml}
         ${body}
         <div class="actions">
           <button class="btn ghost" value="cancel">Close</button>
@@ -144,13 +150,15 @@ export function mountNeonSync(host, { getEvent, getLocationName }) {
     renderDialog();
     const { sent, failed } = await pushNeonSync(getEvent().neonEventId, plan, snap.event);
     sending = false;
+    failures = failed;
     toast(
       failed.length
-        ? `Sent ${sent}, but ${failed.length} failed (${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '…' : ''}). Try again.`
+        ? `Sent ${sent}; ${failed.length} could not be sent. See the details in the dialog.`
         : `Sent ${sent} change${sent === 1 ? '' : 's'} to the OSG Website.`,
     );
     await check();
     if (dlg && plan?.inSync) dlg.close();
+    else renderDialog();
   }
 
   return {

@@ -204,3 +204,15 @@ export function neonEventPatch(details, neonEvent) {
   if (patch.date && (!neonEvent.endDate || neonEvent.endDate === neonEvent.date)) patch.endDate = patch.date;
   return patch;
 }
+
+/** Plain-language reason for a failed write, from the Worker's error message. */
+export function friendlyNeonReason(message) {
+  const m = String(message || '');
+  if (/14014|coupon code/i.test(m)) {
+    return 'The OSG Website rejects updates to registrations made through the online form (it validates their empty coupon code).';
+  }
+  if (/403|turned off/i.test(m)) return 'Sending to the OSG Website is turned off on this site.';
+  if (/429/.test(m)) return 'The OSG Website is busy. Try again in a minute.';
+  const text = m.replace(/^Neon One \d+:\s*/, '');
+  return text.length > 140 ? `${text.slice(0, 140)}…` : text || 'Unknown error.';
+}

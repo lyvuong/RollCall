@@ -1,5 +1,5 @@
 import { auth } from '../firebase.js';
-import { neonEventPatch } from './neon.js';
+import { neonEventPatch, friendlyNeonReason } from './neon.js';
 
 export async function neonApi(path, init = {}) {
   const user = auth.currentUser;
@@ -126,7 +126,7 @@ const patchJson = (body) => ({ method: 'PATCH', headers: { 'Content-Type': 'appl
 
 /**
  * Send a neonSyncPlan() to Neon: event details first, then each check-in. Keeps going when one fails.
- * Resolves { sent, failed: [name or 'Event details'] }.
+ * Resolves { sent, failed: [{name, reason}] } (name is 'Event details' for the event itself).
  */
 export async function pushNeonSync(neonEventId, plan, neonEvent) {
   const failed = [];
@@ -136,15 +136,15 @@ export async function pushNeonSync(neonEventId, plan, neonEvent) {
       await neonApi(`events/${encodeURIComponent(neonEventId)}`, patchJson(neonEventPatch(plan.details, neonEvent)));
       sent += plan.details.length;
     }
-  } catch {
-    failed.push('Event details');
+  } catch (e) {
+    failed.push({ name: 'Event details', reason: friendlyNeonReason(e.message) });
   }
   for (const c of plan.checkins) {
     try {
       await neonApi(`registrations/${encodeURIComponent(c.registrationId)}/attendance`, patchJson({ attendeeId: c.attendeeId, attended: c.attended }));
       sent++;
-    } catch {
-      failed.push(c.name);
+    } catch (e) {
+      failed.push({ name: c.name, reason: friendlyNeonReason(e.message) });
     }
   }
   forgetNeonCache();
