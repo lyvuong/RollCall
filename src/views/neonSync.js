@@ -37,10 +37,11 @@ export function mountNeonSync(host, { getEvent, getLocationName }) {
       host.innerHTML = '';
       return;
     }
+    const n = plan?.count || 0;
     const map = {
       checking: ['sync', 'Checking…', 'Checking the OSG Website', 'checking'],
       ok: ['check', 'In sync', 'Matches the OSG Website', 'ok'],
-      out: ['alert', `Out of sync · ${plan.count}`, `${plan.count} difference${plan.count === 1 ? '' : 's'} from the OSG Website. Tap to review and send.`, 'out'],
+      out: ['alert', `Out of sync · ${n}`, `${n} difference${n === 1 ? '' : 's'} from the OSG Website. Tap to review and send.`, 'out'],
     };
     const [ic, label, tip, cls] = map[state];
     host.innerHTML = `<button type="button" class="sync-chip ${cls}" title="${esc(tip)}" aria-label="${esc(tip)}">${icon(ic)}<span class="wide">${esc(label)}</span></button>`;
