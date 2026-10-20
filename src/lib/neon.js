@@ -145,3 +145,13 @@ export function neonOnlyEvents(neonEvents, events) {
   }
   return out.sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime) || a.name.localeCompare(b.name));
 }
+
+/**
+ * Imported OSG events that are over and were never used: past date, no attendees, no recorded volunteer hours.
+ * (The caller also checks for photos.) Sorted by date. The OSG Website still has them.
+ */
+export function emptyPastNeonEvents(events, today) {
+  return events
+    .filter((e) => e.neonEventId && e.date < today && !Object.keys(e.attendees || {}).length && !(Number(e.volunteerHours) > 0))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+}

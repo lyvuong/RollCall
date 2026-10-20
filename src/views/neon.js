@@ -1,9 +1,9 @@
 import { neonApi, fetchRegistrantsFor } from '../lib/neonApi.js';
-import { loadExisting, newId, commitOps } from '../data.js';
+import { loadExisting, newId, commitOps, eventHasPhotos, deleteEvents } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { ymd, addDays } from '../lib/time.js';
-import { planNeonEvents } from '../lib/neon.js';
+import { planNeonEvents, emptyPastNeonEvents } from '../lib/neon.js';
 
 export function neonView(root, ctx) {
   if (!ctx.isAdmin) {
@@ -28,7 +28,13 @@ export function neonView(root, ctx) {
         <button class="btn" type="submit" id="fetch">${icon('search')} <span>Preview</span></button>
       </form>
     </section>
-    <section class="card" id="preview" hidden></section>`;
+    <section class="card" id="preview" hidden></section>
+    <section class="card">
+      <h2>${icon('trash')} Clean up unused events</h2>
+      <p class="muted">Past events imported from the OSG Website that have no participants, hours or photos. Removing one only deletes RollCall's copy; it stays on the OSG Website.</p>
+      <button class="btn" type="button" id="findEmpty">${icon('search')} Find unused events</button>
+      <div id="emptyOut" aria-live="polite"></div>
+    </section>`;
 
   const box = $('#preview', root);
 
@@ -84,6 +90,41 @@ export function neonView(root, ctx) {
       busy = false;
     };
   }
+
+  $('#findEmpty', root).onclick = async () => {
+    const out = $('#emptyOut', root);
+    const btn = $('#findEmpty', root);
+    btn.disabled = true;
+    out.innerHTML = `<p class="muted">Checking…</p>`;
+    try {
+      const { events } = await loadExisting();
+      const found = [];
+      for (const e of emptyPastNeonEvents(events, today)) if (!(await eventHasPhotos(e.id))) found.push(e);
+      if (!found.length) {
+        out.innerHTML = `<p class="muted">${icon('check')} Nothing to clean up.</p>`;
+      } else {
+        const n = found.length;
+        out.innerHTML = `
+          <div class="table-wrap"><table class="table"><thead><tr><th>Event</th><th>Date</th></tr></thead><tbody>
+          ${found.slice(0, 50).map((e) => `<tr><td>${esc(e.name)}</td><td>${esc(e.date)}</td></tr>`).join('')}
+          </tbody></table></div>${n > 50 ? `<p class="muted">…and ${n - 50} more.</p>` : ''}
+          <button class="btn danger" type="button" id="delEmpty">${icon('trash')} Delete ${n} event${n === 1 ? '' : 's'}</button>`;
+        $('#delEmpty', root).onclick = async () => {
+          if (!confirm(`Delete ${n} unused event${n === 1 ? '' : 's'} from RollCall? This cannot be undone.`)) return;
+          try {
+            await deleteEvents(found.map((e) => e.id));
+            toast(`Deleted ${n} event${n === 1 ? '' : 's'}`);
+            out.innerHTML = `<p class="muted">${icon('check')} Deleted ${n}.</p>`;
+          } catch (err) {
+            toast(err.code === 'permission-denied' ? 'Not allowed.' : 'Could not delete. Try again.');
+          }
+        };
+      }
+    } catch {
+      out.innerHTML = `<p class="error">${icon('alert')} Could not check. Are you online?</p>`;
+    }
+    btn.disabled = false;
+  };
 
   $('#range', root).onsubmit = async (ev) => {
     ev.preventDefault();

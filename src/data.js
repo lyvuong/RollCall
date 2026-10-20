@@ -155,6 +155,20 @@ export function updateEvent(id, data) {
   return updateDoc(doc(db, 'events', id), data);
 }
 
+/** True when the event has at least one photo (so it should not be cleaned up). */
+export async function eventHasPhotos(id) {
+  return !(await getDocs(query(collection(db, 'events', id, 'photos'), limit(1)))).empty;
+}
+
+/** Delete several events in batches of 400. */
+export async function deleteEvents(ids) {
+  for (let i = 0; i < ids.length; i += 400) {
+    const batch = writeBatch(db);
+    for (const id of ids.slice(i, i + 400)) batch.delete(doc(db, 'events', id));
+    await batch.commit();
+  }
+}
+
 export function deleteEvent(id) {
   return deleteDoc(doc(db, 'events', id));
 }

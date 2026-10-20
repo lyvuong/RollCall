@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { planNeonEvents, neonOnlyEvents, inferFormat } from './neon.js';
+import { planNeonEvents, neonOnlyEvents, inferFormat, emptyPastNeonEvents } from './neon.js';
+
+describe('emptyPastNeonEvents', () => {
+  it('keeps only past imported events nobody used', () => {
+    const e = (o) => ({ id: 'x', name: 'A', date: '2026-01-01', neonEventId: '1', attendees: {}, ...o });
+    const out = emptyPastNeonEvents(
+      [e({ id: 'a' }), e({ id: 'b', attendees: { p: { name: 'P' } } }), e({ id: 'c', neonEventId: undefined }), e({ id: 'd', date: '2026-12-01' }), e({ id: 'f', volunteerHours: 3 })],
+      '2026-06-01',
+    );
+    expect(out.map((x) => x.id)).toEqual(['a']);
+  });
+});
 
 let n = 0;
 const newId = (col) => `${col}-${++n}`;
