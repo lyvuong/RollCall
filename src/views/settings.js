@@ -17,11 +17,16 @@ import {
   loadExisting,
   markNotSame,
   clearNotSame,
+  getNeonPeople,
+  applyPeopleSync,
+  watchPeopleSync,
 } from '../data.js';
 import { esc, $, toast, randomCode } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { ymd, addDays, personKind } from '../lib/time.js';
 import { getPref, setPref } from '../lib/theme.js';
+import { planPeopleSync, daysSince } from '../lib/peopleSync.js';
+import { fetchAllNeonAccounts } from '../lib/neonApi.js';
 import { findDuplicateGroups, attendanceStats, inactivePeople, ignoredPairs } from '../lib/people.js';
 
 const fail = (msg) => () => toast(msg);
@@ -94,6 +99,8 @@ export function settingsView(root, ctx) {
       <h2>${icon('download')} OSG Website</h2>
       <p class="muted">Bring events from the OSG Website into RollCall.</p>
       <a class="btn" href="#/neon">${icon('download')} Import events from the OSG Website</a>
+      <p class="muted" id="psStatus">Checking the last people sync…</p>
+      <button class="btn" id="psSync">${icon('userPlus')} Update people from the OSG Website</button>
     </section>
     <section class="card">
       <h2>${icon('shield')} Staff</h2>
@@ -446,7 +453,46 @@ export function settingsView(root, ctx) {
       if (confirm("Revoke this person's access?")) removeMember(li.dataset.id).catch(fail('Could not revoke.'));
     };
 
+    /* ----- people list from the OSG Website: weekly copy for name search ----- */
+    const WEEK_DAYS = 7;
+    let lastSync; // undefined = loading, null = never
+    const renderSync = () => {
+      const days = lastSync ? daysSince(lastSync.at?.toMillis?.()) : null;
+      const stale = days === null || days >= WEEK_DAYS;
+      $('#psStatus', root).innerHTML =
+        lastSync === undefined
+          ? 'Checking the last people sync…'
+          : days === null
+            ? 'The people list has not been copied from the OSG Website yet. Name search there needs it.'
+            : `${stale ? '<strong>Due:</strong> ' : ''}People list last updated ${days === 0 ? 'today' : `${days} day${days === 1 ? '' : 's'} ago`} (${lastSync.added} added, ${lastSync.deactivated} no longer registered).`;
+    };
+    let syncing = false;
+    $('#psSync', root).onclick = async () => {
+      if (syncing) return;
+      syncing = true;
+      const btn = $('#psSync', root);
+      btn.disabled = true;
+      try {
+        const accounts = await fetchAllNeonAccounts((done, total) => ($('#psStatus', root).textContent = `Reading the OSG Website… ${done} of ${total}`));
+        $('#psStatus', root).textContent = 'Comparing with the saved list…';
+        const plan = planPeopleSync(accounts, await getNeonPeople());
+        if (plan.suspicious) {
+          toast(`Stopped: ${plan.deactivate.length} people would be removed. Nothing changed.`);
+        } else {
+          await applyPeopleSync(plan);
+          toast(`People updated · ${plan.add.length} added, ${plan.update.length} changed, ${plan.deactivate.length} removed`);
+        }
+      } catch (e) {
+        toast(e?.status === 429 ? 'The OSG Website is busy. Try again in a minute.' : 'Could not update people.');
+      } finally {
+        syncing = false;
+        btn.disabled = false;
+        renderSync();
+      }
+    };
+
     unsubs.push(
+      watchPeopleSync((s) => ((lastSync = s), renderSync())),
       watchInvites((rows) => ((invites = rows), renderInvites())),
       watchMembers((rows) => ((members = rows), renderMembers())),
     );

@@ -60,6 +60,22 @@ service cloud.firestore {
       allow delete: if isMember();
     }
 
+    // Copy of the Neon One account list (doc id = Neon account id), refreshed by the Settings sync.
+    match /neonPeople/{id} {
+      allow read: if isMember();
+      allow create, update: if isMember()
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.nameLower is string
+        && request.resource.data.active is bool;
+      allow delete: if false;
+    }
+
+    match /appMeta/{id} {
+      allow read: if isMember();
+      allow write: if isMember();
+    }
+
     // Collection-group reads of photo metadata (event list counts and thumbnails).
     match /{path=**}/photos/{photoId} {
       allow read: if isMember();

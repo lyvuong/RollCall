@@ -148,6 +148,30 @@ describe('registrations and accounts', () => {
     expect(sent.searchFields.map((f) => f.field)).toEqual(['First Name', 'Last Name']);
   });
 
+  it('lists one page of named accounts for the people sync', async () => {
+    mockFetch(() =>
+      ok({
+        pagination: { totalPages: 21 },
+        searchResults: [
+          { 'Account ID': 7, 'First Name': 'Ada', 'Last Name': 'Lovelace', 'Email 1': 'a@x.org' },
+          { 'Account ID': 8, 'First Name': null, 'Last Name': null, 'Email 1': null },
+        ],
+      }),
+    );
+    const res = await call('/api/neon/accounts/page', { method: 'POST', body: JSON.stringify({ page: 2 }) });
+    expect(await res.json()).toEqual({
+      accounts: [{ accountId: '7', firstName: 'Ada', lastName: 'Lovelace', email: 'a@x.org' }],
+      page: 2,
+      totalPages: 21,
+    });
+    expect(JSON.parse(neonCalls[0].init.body).pagination).toEqual({ currentPage: 2, pageSize: 200 });
+  });
+
+  it('rejects a bad page number', async () => {
+    const res = await call('/api/neon/accounts/page', { method: 'POST', body: JSON.stringify({ page: -1 }) });
+    expect(res.status).toBe(400);
+  });
+
   it('requires a name or email', async () => {
     const res = await call('/api/neon/accounts/search', { method: 'POST', body: JSON.stringify({}) });
     expect(res.status).toBe(400);

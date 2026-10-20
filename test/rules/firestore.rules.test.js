@@ -102,6 +102,27 @@ describe('data access', () => {
   });
 });
 
+describe('neon people copy', () => {
+  const person = { neonAccountId: '7', name: 'Ada L', nameLower: 'ada l', lastLower: 'l', email: '', active: true };
+
+  it('members can write and search it, but never delete', async () => {
+    const db = env.authenticatedContext('member1').firestore();
+    await assertSucceeds(setDoc(doc(db, 'neonPeople', '7'), person));
+    await assertSucceeds(setDoc(doc(db, 'neonPeople', '7'), { ...person, active: false }));
+    await assertSucceeds(getDoc(doc(db, 'neonPeople', '7')));
+    await assertFails(deleteDoc(doc(db, 'neonPeople', '7')));
+  });
+
+  it('needs a name and an active flag; non-members are denied', async () => {
+    const db = env.authenticatedContext('member1').firestore();
+    await assertFails(setDoc(doc(db, 'neonPeople', '8'), { ...person, name: '' }));
+    await assertFails(setDoc(doc(db, 'neonPeople', '8'), { ...person, active: 'yes' }));
+    const stranger = env.authenticatedContext('stranger').firestore();
+    await assertFails(setDoc(doc(stranger, 'neonPeople', '9'), person));
+    await assertFails(getDoc(doc(stranger, 'appMeta', 'neonPeopleSync')));
+  });
+});
+
 describe('event photos', () => {
   const meta = (uid, extra = {}) => ({
     uploadedBy: uid, uploadedByName: 'Pat', width: 800, height: 600, uploadedAt: Timestamp.now(),
