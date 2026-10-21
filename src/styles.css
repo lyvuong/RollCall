@@ -555,6 +555,10 @@ button.badge.neon-import:disabled { opacity: .6; cursor: wait; }
 .locdups { margin: 8px 0; }
 .locdups p { margin: 0 0 6px; }
 .locdup { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
+/* a long registered list scrolls inside its card instead of pushing the page down */
+.plist.scroll { max-height: min(50vh, 420px); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.regfind { margin-top: 10px; }
 .prow.cancelled .nm { opacity: .65; text-decoration: line-through; text-decoration-color: var(--rose-ink); }
 .prow.cancelled .nm .tiny { text-decoration: none; display: inline-block; }
-.selfrow { margin: 0 0 10px; }
+.sechead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; margin-bottom: 4px; }
+@media (max-width: 380px) { .sechead .selftxt { display: none; } }
