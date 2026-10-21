@@ -8,6 +8,7 @@ import { auth } from './firebase.js';
 import { getMember, getMembership, getIsAdmin, redeemInvite, setMyName, syncRoster } from './data.js';
 import { esc, $, toast } from './lib/dom.js';
 import { icon, logo } from './lib/icons.js';
+import { isIPhone, linkFromPaste } from './lib/emailLink.js';
 import { applyTheme, toggleTheme, effective } from './lib/theme.js';
 import { homeView } from './views/home.js';
 import { eventView } from './views/event.js';
@@ -59,9 +60,9 @@ const store = {
   clear: () => { try { localStorage.removeItem(EMAIL_KEY); } catch { /* private mode */ } },
 };
 
-async function finishEmailLink(email) {
+async function finishEmailLink(email, link = location.href) {
   try {
-    await signInWithEmailLink(auth, email, location.href);
+    await signInWithEmailLink(auth, email, link);
     store.clear();
     history.replaceState(null, '', location.pathname + location.hash);
   } catch (e) {
@@ -90,18 +91,40 @@ function showLogin(error = '', sentTo = '') {
     const email = store.get();
     return email ? finishEmailLink(email) : showConfirmEmail();
   }
+  // On an iPhone the emailed link opens in Safari, not this app, so offer pasting it here. Shown while a link is
+  // pending (the app may have been closed while the user fetched it from their mail).
+  const pending = sentTo || store.get();
+  const paste = isIPhone() && pending;
   renderCard(`
     ${logo(72)}
     <h1>OSG Activity Roll Call</h1>
     <p class="muted">Roll call and volunteer hours for OSG events.</p>
     ${error ? `<p class="error">${icon('alert')}${esc(error)}</p>` : ''}
-    ${sentTo ? `<p class="muted">${icon('check')} Link sent to ${esc(sentTo)}. Open it on this device to sign in.</p>` : ''}
-    <button class="btn primary block" id="signin">${icon('login')} Sign in with Google</button>
+    ${sentTo ? `<p class="muted">${icon('check')} Link sent to ${esc(sentTo)}. ${paste ? 'Check your email.' : 'Open it on this device to sign in.'}</p>` : ''}
+    ${
+      paste
+        ? `<form id="pasteForm" class="form">
+      <p class="muted">On iPhone, tapping the link opens Safari instead of this app. Instead, press and hold the link in your email, choose <b>Copy Link</b>, then paste it here.</p>
+      <input id="pasteLink" class="input" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste the sign-in link" aria-label="Sign-in link" required />
+      <button class="btn primary block" type="submit">${icon('login')} Sign in with this link</button>
+    </form>
+    <p class="muted">or</p>`
+        : ''
+    }
+    <button class="btn ${paste ? '' : 'primary '}block" id="signin">${icon('login')} Sign in with Google</button>
     <p class="muted">or</p>
     <form id="emailForm" class="form">
-      <input id="email" class="input" type="email" autocomplete="email" placeholder="Email address" aria-label="Email address" required />
-      <button class="btn block" type="submit">${icon('login')} Email me a sign-in link</button>
+      <input id="email" class="input" type="email" autocomplete="email" placeholder="Email address" aria-label="Email address" value="${esc(pending && !sentTo ? pending : '')}" required />
+      <button class="btn block" type="submit">${icon('login')} ${paste ? 'Send a new link' : 'Email me a sign-in link'}</button>
     </form>`);
+  if (paste) {
+    $('#pasteForm').onsubmit = (e) => {
+      e.preventDefault();
+      const link = linkFromPaste($('#pasteLink').value);
+      if (!isSignInWithEmailLink(auth, link)) return showLogin('That does not look like the sign-in link from the email. Copy the whole link and try again.');
+      finishEmailLink(store.get() || pending, link);
+    };
+  }
   $('#signin').onclick = async () => {
     try {
       await signInWithPopup(auth, new GoogleAuthProvider());
