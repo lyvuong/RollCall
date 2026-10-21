@@ -51,6 +51,19 @@ service cloud.firestore {
         && request.resource.data.name.size() <= 80;
     }
 
+    // Who is staff or a volunteer, by display name, so every member's participants list can show it.
+    // Kept in step with members/{uid}.role by the app: a member writes their own, an admin anyone's.
+    match /roster/{uid} {
+      allow read: if isMember();
+      allow create, update: if isMember()
+        && (request.auth.uid == uid || isAdmin())
+        && request.resource.data.keys().hasOnly(['name', 'role'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.role in ['staff', 'volunteer'];
+      allow delete: if isAdmin();
+    }
+
     match /locations/{id} {
       allow read: if isMember();
       allow write: if isMember();

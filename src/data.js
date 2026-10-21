@@ -61,7 +61,18 @@ export const setMyName = (uid, name) => updateDoc(doc(db, 'members', uid), { nam
 
 /** Staff can take part in events but never as volunteers (no volunteer hours); volunteers can do both. */
 export const ROLES = { staff: 'Staff', volunteer: 'Volunteer' };
-export const setMemberRole = (uid, role) => updateDoc(doc(db, 'members', uid), { role });
+export function setMemberRole(uid, role, name) {
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'members', uid), { role });
+  batch.set(doc(db, 'roster', uid), { name, role });
+  return batch.commit();
+}
+
+/** Re-record a member's role in the roster (for roles chosen before the roster existed). */
+export const syncRoster = (uid, name, role) => setDoc(doc(db, 'roster', uid), { name, role });
+
+/** Live roster: [{ id, name, role }] of every member who has chosen staff or volunteer. */
+export const watchRoster = (cb) => watchCollection(collection(db, 'roster'), cb);
 
 export async function getIsAdmin(uid) {
   try {
@@ -357,7 +368,12 @@ export function watchMembers(cb) {
   return watchCollection(collection(db, 'members'), cb);
 }
 
-export const removeMember = (uid) => deleteDoc(doc(db, 'members', uid));
+export async function removeMember(uid) {
+  const batch = writeBatch(db);
+  batch.delete(doc(db, 'members', uid));
+  batch.delete(doc(db, 'roster', uid));
+  await batch.commit();
+}
 
 /* ---------- suggestions & bulk import ---------- */
 

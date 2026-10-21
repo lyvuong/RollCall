@@ -127,6 +127,28 @@ describe('member role', () => {
   });
 });
 
+describe('roster', () => {
+  const entry = { name: 'Mo', role: 'staff' };
+
+  it("members read it; a member writes only their own entry, an admin anyone's", async () => {
+    const db = env.authenticatedContext('member1').firestore();
+    await assertSucceeds(setDoc(doc(db, 'roster', 'member1'), entry));
+    await assertFails(setDoc(doc(db, 'roster', 'someone'), entry));
+    await assertSucceeds(getDoc(doc(db, 'roster', 'member1')));
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'members', 'admin1'), { code: 'GOODCODE', email: 'a@x.org', name: 'Al' }));
+    const admin = env.authenticatedContext('admin1').firestore();
+    await assertSucceeds(setDoc(doc(admin, 'roster', 'someone'), { name: 'Al', role: 'volunteer' }));
+  });
+
+  it('needs a valid role and no extra fields; non-members are denied', async () => {
+    const db = env.authenticatedContext('member1').firestore();
+    await assertFails(setDoc(doc(db, 'roster', 'member1'), { ...entry, role: 'boss' }));
+    await assertFails(setDoc(doc(db, 'roster', 'member1'), { ...entry, extra: 1 }));
+    const stranger = env.authenticatedContext('stranger').firestore();
+    await assertFails(getDoc(doc(stranger, 'roster', 'member1')));
+  });
+});
+
 describe('neon people copy', () => {
   const person = { neonAccountId: '7', name: 'Ada L', nameLower: 'ada l', lastLower: 'l', email: '', active: true };
 

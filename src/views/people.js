@@ -1,4 +1,4 @@
-import { watchEvent, watchPeople, setAttendance, setRole, addPerson, markRegistrant, saveRegistrants, searchNeonPeople, linkPerson } from '../data.js';
+import { watchEvent, watchPeople, setAttendance, setRole, addPerson, markRegistrant, saveRegistrants, searchNeonPeople, linkPerson, watchRoster } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { fetchNeonRegistrants } from '../lib/neonApi.js';
 import { registrantMap } from '../lib/neon.js';
@@ -15,9 +15,12 @@ export function participantsView(root, ctx, eventId) {
   let q = '';
   let neonHits = []; // OSG Website people matching q (Firestore neonPeople), fetched as the user types
   let neonTimer;
+  let whoIs = new Map(); // lower-case name -> 'staff' | 'volunteer', for members who said which they are
   const removed = new Set(); // staged removals, applied on Done
   const roleEdits = new Map(); // staged role changes (id -> role), applied on Done
-  const effRole = (id, a) => roleEdits.get(id) || roleOf(a);
+  /** Known members have a fixed role at every event: a volunteer is always a volunteer, staff always a participant. */
+  const fixedRole = (name) => ({ volunteer: 'volunteer', staff: 'participant' })[whoIs.get(String(name).toLowerCase())] || null;
+  const effRole = (id, a) => fixedRole(a?.name) || roleEdits.get(id) || roleOf(a);
   // "Include myself" stages the signed-in staff member as a volunteer (nothing is added automatically).
   let peopleLoaded = false;
   let selfStaged = false;
@@ -152,7 +155,9 @@ export function participantsView(root, ctx, eventId) {
             const kind = personKind(a.type);
             const gone = removed.has(a.id);
             const nm = esc(a.name);
-            return `<span class="pn ${kind}${gone ? ' gone' : ''}"><button type="button" class="pname" data-role="${esc(a.id)}" aria-pressed="${vol}" title="${KIND[kind].label} · ${vol ? 'Volunteer (tap for Participant)' : 'Participant (tap for Volunteer)'}">${vol ? icon('heart') : ''}${nm}</button><button type="button" class="mb del${gone ? ' on' : ''}" data-del="${esc(a.id)}" aria-label="${gone ? 'Keep' : 'Remove'} ${nm}" title="${gone ? 'Undo remove' : 'Remove'}">${icon(gone ? 'plus' : 'minus')}</button>${i < cur.length - 1 ? '<span class="sep">,</span>' : ''}</span>`;
+            const fixed = fixedRole(a.name);
+            const whoIcon = whoIs.get(a.name.toLowerCase()) === 'staff' ? `<span class="who" title="Staff">${icon('shield')}</span>` : '';
+            return `<span class="pn ${kind}${gone ? ' gone' : ''}"><button type="button" class="pname" data-role="${esc(a.id)}" aria-pressed="${vol}" title="${KIND[kind].label} · ${fixed ? (vol ? 'Volunteer' : 'Staff') : vol ? 'Volunteer (tap for Participant)' : 'Participant (tap for Volunteer)'}">${vol ? icon('heart') : ''}${whoIcon}${nm}</button><button type="button" class="mb del${gone ? ' on' : ''}" data-del="${esc(a.id)}" aria-label="${gone ? 'Keep' : 'Remove'} ${nm}" title="${gone ? 'Undo remove' : 'Remove'}">${icon(gone ? 'plus' : 'minus')}</button>${i < cur.length - 1 ? '<span class="sep">,</span>' : ''}</span>`;
           })
           .join(' ')
       : `<span class="muted">No participants yet. Search above to add people.</span>`;
@@ -247,6 +252,11 @@ export function participantsView(root, ctx, eventId) {
       const saved = event.attendees || {};
       const jobs = [...removed].filter((id) => saved[id]).map((id) => setAttendance(eventId, { id, ...saved[id] }, false));
       for (const [id, role] of roleEdits) if (saved[id] && !removed.has(id)) jobs.push(setRole(eventId, id, role));
+      // Known staff and volunteers get their fixed role, whatever an earlier roll recorded.
+      for (const [id, a] of Object.entries(saved)) {
+        const want = fixedRole(a.name);
+        if (want && want !== roleOf(a) && !removed.has(id) && !roleEdits.has(id)) jobs.push(setRole(eventId, id, want));
+      }
       if (selfStaged) {
         let me = selfPerson();
         if (!me) {
@@ -262,8 +272,8 @@ export function participantsView(root, ctx, eventId) {
       location.hash = '#/';
     } else if (t.dataset.role) {
       const id = t.dataset.role;
-      if (ctx?.role === 'staff' && (id === selfId() || id === myEntryId())) {
-        toast('Staff take part as participants, not volunteers.');
+      if (fixedRole(att[id]?.name)) {
+        toast(fixedRole(att[id].name) === 'volunteer' ? 'Volunteers are always volunteers.' : 'Staff take part as participants, not volunteers.');
         return;
       }
       const next = effRole(id, att[id]) === 'volunteer' ? 'participant' : 'volunteer';
@@ -276,7 +286,7 @@ export function participantsView(root, ctx, eventId) {
     } else if (t.dataset.add) {
       const p = people.find((x) => x.id === t.dataset.add);
       if (p) {
-        setAttendance(eventId, p, true).catch(fail);
+        setAttendance(eventId, p, true, fixedRole(p.name) || 'participant').catch(fail);
         toast(`${p.name} added as participant · ${Object.keys(att).length + 1} total`);
       }
     } else if (t.dataset.neon) {
@@ -290,7 +300,7 @@ export function participantsView(root, ctx, eventId) {
           created.done.catch(() => toast('Could not save person.'));
           person = created.person;
         }
-        setAttendance(eventId, person, true).catch(fail);
+        setAttendance(eventId, person, true, fixedRole(person.name) || 'participant').catch(fail);
         toast(`${n.name} added as participant · ${Object.keys(att).length + 1} total`);
         q = '';
         neonHits = [];
@@ -302,7 +312,7 @@ export function participantsView(root, ctx, eventId) {
       if (!name) return;
       const created = addPerson(name, t.dataset.new);
       created.done.catch(() => toast('Could not save person.'));
-      setAttendance(eventId, created.person, true).catch(fail);
+      setAttendance(eventId, created.person, true, fixedRole(created.person.name) || 'participant').catch(fail);
       toast(`${name} added as new ${t.dataset.new === 'osg' ? 'OSG' : 'community'} participant · ${Object.keys(att).length + 1} total`);
       q = '';
       $('#q', root).value = '';
@@ -334,6 +344,10 @@ export function participantsView(root, ctx, eventId) {
     watchPeople((rows) => {
       people = rows;
       peopleLoaded = true;
+      render();
+    }),
+    watchRoster((rows) => {
+      whoIs = new Map(rows.map((r) => [r.name.toLowerCase(), r.role]));
       render();
     }),
     watchEvent(eventId, (e) => {

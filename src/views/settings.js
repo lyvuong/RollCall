@@ -21,6 +21,8 @@ import {
   applyPeopleSync,
   watchPeopleSync,
   setMemberRole,
+  watchRoster,
+  syncRoster,
   ROLES,
 } from '../data.js';
 import { esc, $, toast, randomCode } from '../lib/dom.js';
@@ -445,6 +447,16 @@ export function settingsView(root, ctx) {
       toast(`Code ${code} created`);
     };
 
+    // Roles chosen before the roster existed: record them once so participants lists can show them.
+    let roster;
+    const backfillRoster = () => {
+      if (!roster) return;
+      const have = new Map(roster.map((r) => [r.id, r]));
+      for (const m of members) {
+        const r = have.get(m.id);
+        if (m.role && m.name && (!r || r.role !== m.role || r.name !== m.name)) syncRoster(m.id, m.name, m.role).catch(() => {});
+      }
+    };
     const memberTag = (m) =>
       `<span class="tag" data-id="${esc(m.id)}">${icon('user')}<span class="tname" title="${esc(m.email || '')}">${esc(m.name || m.email || m.id)}</span>${
         m.id === ctx.user.uid
@@ -468,7 +480,7 @@ export function settingsView(root, ctx) {
       const li = ev.target.closest('[data-id]');
       if (!btn || !li) return;
       if (btn.dataset.act === 'role') {
-        setMemberRole(li.dataset.id, btn.dataset.r).catch(fail('Could not change the role.'));
+        setMemberRole(li.dataset.id, btn.dataset.r, members.find((m) => m.id === li.dataset.id)?.name || 'Unnamed').catch(fail('Could not change the role.'));
         return;
       }
       if (confirm("Revoke this person's access?")) removeMember(li.dataset.id).catch(fail('Could not revoke.'));
@@ -515,7 +527,8 @@ export function settingsView(root, ctx) {
     unsubs.push(
       watchPeopleSync((s) => ((lastSync = s), renderSync())),
       watchInvites((rows) => ((invites = rows), renderInvites())),
-      watchMembers((rows) => ((members = rows), renderMembers())),
+      watchMembers((rows) => ((members = rows), renderMembers(), backfillRoster())),
+      watchRoster((rows) => ((roster = rows), backfillRoster())),
     );
   }
 
@@ -527,7 +540,7 @@ export function settingsView(root, ctx) {
   $('#roleSeg', root).onclick = (ev) => {
     const r = ev.target.closest('button')?.dataset.r;
     if (!r || r === ctx.role) return;
-    setMemberRole(ctx.user.uid, r).then(
+    setMemberRole(ctx.user.uid, r, ctx.name).then(
       () => ((ctx.role = r), renderRole(), toast(`Saved: ${ROLES[r]}`)),
       fail('Could not save your role.'),
     );
