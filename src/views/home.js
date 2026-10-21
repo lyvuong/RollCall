@@ -45,6 +45,7 @@ export const PRESETS = [
 const refreshing = new Set(); // registrant refreshes already tried this session (see refreshRegistrants)
 let range = null;
 const open = new Set(); // expanded event cards
+const dayToggled = new Map(); // date -> open?, for day groups the user opened or closed (others use the default)
 let filterOpen = false; // date-range card expanded?
 let fixOnly = false; // only events that still need volunteers identified, across all dates
 const ALL = { from: '2000-01-01', to: '2099-12-31' };
@@ -122,6 +123,13 @@ export function homeView(root, _ctx) {
     }).join('');
   }
 
+  /** A day's group is open unless it is yesterday or tomorrow (or the user toggled it). "Needs volunteers" shows everything. */
+  function dayIsOpen(date, today) {
+    if (fixOnly) return true;
+    if (dayToggled.has(date)) return dayToggled.get(date);
+    return date !== addDays(today, -1) && date !== addDays(today, 1);
+  }
+
   function renderList() {
     const list = $('#list', root);
     const todo = events.filter(needsVolunteers).length;
@@ -155,11 +163,14 @@ export function homeView(root, _ctx) {
     }
     const today = ymd();
     list.innerHTML = [...days]
-      .map(
-        ([date, items]) => `
-        <h2 class="day ${date === today ? 'today' : ''}">${esc(formatDay(date))}</h2>
-        ${items.map((e) => (e.fromNeon ? neonCard(e) : card(e))).join('')}`,
-      )
+      .map(([date, items]) => {
+        const on = dayIsOpen(date, today);
+        return `
+        <h2 class="day ${date === today ? 'today' : ''}"><button type="button" class="day-toggle${on ? ' open' : ''}" data-day="${esc(date)}" aria-expanded="${on}">
+          <span class="dchev">${icon('chevron')}</span><span class="dlbl">${esc(formatDay(date))}</span>${on ? '' : `<span class="dcount">${items.length}</span>`}
+        </button></h2>
+        ${on ? items.map((e) => (e.fromNeon ? neonCard(e) : card(e))).join('') : ''}`;
+      })
       .join('');
     loadThumbs();
   }
@@ -328,6 +339,11 @@ export function homeView(root, _ctx) {
   }
 
   $('#list', root).onclick = (ev) => {
+    const dayBtn = ev.target.closest('.day-toggle');
+    if (dayBtn) {
+      dayToggled.set(dayBtn.dataset.day, dayBtn.getAttribute('aria-expanded') !== 'true');
+      return renderList();
+    }
     const imp = ev.target.closest('.neon-import');
     if (imp) return importNeon(imp);
     if (ev.target.closest('a,button')) return;
