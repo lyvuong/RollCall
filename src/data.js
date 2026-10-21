@@ -59,6 +59,10 @@ export async function getMember(uid) {
 
 export const setMyName = (uid, name) => updateDoc(doc(db, 'members', uid), { name: name.trim().replace(/\s+/g, ' ') });
 
+/** Staff can take part in events but never as volunteers (no volunteer hours); volunteers can do both. */
+export const ROLES = { staff: 'Staff', volunteer: 'Volunteer' };
+export const setMemberRole = (uid, role) => updateDoc(doc(db, 'members', uid), { role });
+
 export async function getIsAdmin(uid) {
   try {
     return (await getDoc(doc(db, 'admins', uid))).exists();

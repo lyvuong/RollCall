@@ -20,6 +20,8 @@ import {
   getNeonPeople,
   applyPeopleSync,
   watchPeopleSync,
+  setMemberRole,
+  ROLES,
 } from '../data.js';
 import { esc, $, toast, randomCode } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
@@ -48,6 +50,16 @@ export function settingsView(root, ctx) {
         <button type="button" data-t="dark">${icon('moon')} Dark</button>
         <button type="button" data-t="system">${icon('monitor')} System</button>
       </div>
+    </section>
+
+    <section class="card">
+      <h2>${icon('user')} My role</h2>
+      <p class="muted">Staff can take part in events but are not volunteers, so their time never counts toward volunteer hours. Volunteers can do both.</p>
+      <div class="seg" id="roleSeg" role="group" aria-label="My role">
+        <button type="button" data-r="staff">${icon('shield')} Staff</button>
+        <button type="button" data-r="volunteer">${icon('heart')} Volunteer</button>
+      </div>
+      <p class="muted" id="roleNote"></p>
     </section>
 
     <section class="card">
@@ -103,8 +115,8 @@ export function settingsView(root, ctx) {
       <button class="btn" id="psSync">${icon('userPlus')} Update people from the OSG Website</button>
     </section>
     <section class="card">
-      <h2>${icon('shield')} Staff</h2>
-      <div id="mems" class="tags"></div>
+      <h2>${icon('shield')} People who sign in</h2>
+      <div id="mems"></div>
     </section>`
         : ''
     }
@@ -433,23 +445,32 @@ export function settingsView(root, ctx) {
       toast(`Code ${code} created`);
     };
 
+    const memberTag = (m) =>
+      `<span class="tag" data-id="${esc(m.id)}">${icon('user')}<span class="tname" title="${esc(m.email || '')}">${esc(m.name || m.email || m.id)}</span>${
+        m.id === ctx.user.uid
+          ? '<small class="muted">you</small>'
+          : `<button type="button" class="mb del" data-act="del" aria-label="Revoke access" title="Revoke access">${icon('x')}</button>`
+      }${['staff', 'volunteer']
+        .filter((r) => r !== m.role)
+        .map((r) => `<button type="button" class="mb" data-act="role" data-r="${r}" aria-label="Make ${ROLES[r]}" title="Make ${ROLES[r]}">${icon(r === 'staff' ? 'shield' : 'heart')}</button>`)
+        .join('')}</span>`;
     const renderMembers = () => {
+      const group = (title, rows) =>
+        rows.length ? `<h3>${title} (${rows.length})</h3><div class="tags">${rows.map(memberTag).join('')}</div>` : '';
       $('#mems', root).innerHTML = members.length
-        ? members
-            .map(
-              (m) => `<span class="tag" data-id="${esc(m.id)}">${icon('user')}<span class="tname" title="${esc(m.email || '')}">${esc(m.name || m.email || m.id)}</span>${
-                m.id === ctx.user.uid
-                  ? '<small class="muted">you</small>'
-                  : `<button type="button" class="mb del" data-act="del" aria-label="Revoke access" title="Revoke access">${icon('x')}</button>`
-              }</span>`,
-            )
-            .join('')
-        : '<span class="muted">No staff.</span>';
+        ? group('Staff', members.filter((m) => m.role === 'staff')) +
+          group('Volunteers', members.filter((m) => m.role === 'volunteer')) +
+          group('Not chosen yet', members.filter((m) => m.role !== 'staff' && m.role !== 'volunteer'))
+        : '<span class="muted">Nobody yet.</span>';
     };
     $('#mems', root).onclick = (ev) => {
       const btn = ev.target.closest('button');
       const li = ev.target.closest('[data-id]');
       if (!btn || !li) return;
+      if (btn.dataset.act === 'role') {
+        setMemberRole(li.dataset.id, btn.dataset.r).catch(fail('Could not change the role.'));
+        return;
+      }
       if (confirm("Revoke this person's access?")) removeMember(li.dataset.id).catch(fail('Could not revoke.'));
     };
 
@@ -497,6 +518,21 @@ export function settingsView(root, ctx) {
       watchMembers((rows) => ((members = rows), renderMembers())),
     );
   }
+
+  /* ----- my role: staff or volunteer ----- */
+  const renderRole = () => {
+    for (const b of $('#roleSeg', root).querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.r === ctx.role));
+    $('#roleNote', root).textContent = ctx.role ? `You are signed in as ${ROLES[ctx.role]}.` : 'Choose one so events count your time correctly.';
+  };
+  $('#roleSeg', root).onclick = (ev) => {
+    const r = ev.target.closest('button')?.dataset.r;
+    if (!r || r === ctx.role) return;
+    setMemberRole(ctx.user.uid, r).then(
+      () => ((ctx.role = r), renderRole(), toast(`Saved: ${ROLES[r]}`)),
+      fail('Could not save your role.'),
+    );
+  };
+  renderRole();
 
   unsubs.push(
     watchLocations((rows) => ((locations = rows), renderLocs())),

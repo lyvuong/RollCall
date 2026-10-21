@@ -22,6 +22,7 @@ export function participantsView(root, ctx, eventId) {
   let peopleLoaded = false;
   let selfStaged = false;
   const selfName = (ctx?.name || '').trim();
+  const selfRole = ctx?.role === 'staff' ? 'participant' : 'volunteer'; // staff are never volunteers
   const selfPerson = () => people.find((x) => x.name.toLowerCase() === selfName.toLowerCase());
   const selfId = () => selfPerson()?.id || '__self__';
   /** Id of the signed-in staff member's entry already saved on the event, if any. */
@@ -29,7 +30,7 @@ export function participantsView(root, ctx, eventId) {
     selfName ? Object.entries(event?.attendees || {}).find(([, a]) => a.name.toLowerCase() === selfName.toLowerCase())?.[0] : undefined;
   const fullAtt = () => ({
     ...(event?.attendees || {}),
-    ...(selfStaged ? { [selfId()]: { name: selfName, type: selfPerson()?.type || 'osg', role: 'volunteer' } } : {}),
+    ...(selfStaged ? { [selfId()]: { name: selfName, type: selfPerson()?.type || 'osg', role: selfRole } } : {}),
   });
   const unsubs = [];
   let regTried = false;
@@ -253,7 +254,7 @@ export function participantsView(root, ctx, eventId) {
           created.done.catch(() => toast('Could not save person.'));
           me = created.person;
         }
-        jobs.push(setAttendance(eventId, me, true, roleEdits.get(selfId()) || 'volunteer'));
+        jobs.push(setAttendance(eventId, me, true, roleEdits.get(selfId()) || selfRole));
       }
       removed.clear();
       roleEdits.clear();
@@ -261,6 +262,10 @@ export function participantsView(root, ctx, eventId) {
       location.hash = '#/';
     } else if (t.dataset.role) {
       const id = t.dataset.role;
+      if (ctx?.role === 'staff' && (id === selfId() || id === myEntryId())) {
+        toast('Staff take part as participants, not volunteers.');
+        return;
+      }
       const next = effRole(id, att[id]) === 'volunteer' ? 'participant' : 'volunteer';
       if (selfStaged && id === selfId()) {
         if (next === 'volunteer') roleEdits.delete(id);

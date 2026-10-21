@@ -517,6 +517,8 @@ label.btn.disabled { opacity: .6; pointer-events: none; }
 /* Saved Members review */
 .review { margin-top: 14px; }
 .review h3 { margin: 16px 0 6px; font-size: 1rem; }
+#mems h3 { margin: 14px 0 6px; font-size: 1rem; }
+#mems h3:first-child { margin-top: 0; }
 .rev-group { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 8px 10px; margin-top: 8px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px; }
 .rev-group ul, .rev-list { list-style: none; margin: 0; padding: 0; }
 .rev-list { max-height: 320px; overflow: auto; margin-top: 8px; }

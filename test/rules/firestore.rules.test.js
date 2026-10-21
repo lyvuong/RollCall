@@ -5,7 +5,7 @@ import {
   assertSucceeds,
   assertFails,
 } from '@firebase/rules-unit-testing';
-import { collectionGroup, getDocs, doc, getDoc, setDoc, deleteDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore';
+import { collectionGroup, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore';
 
 let env;
 const future = () => Timestamp.fromMillis(Date.now() + 86_400_000);
@@ -99,6 +99,31 @@ describe('data access', () => {
       });
     }
     await assertSucceeds(batch.commit());
+  });
+});
+
+describe('member role', () => {
+  it('a member can set their own role to staff or volunteer, nothing else', async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'members', 'member1'), { code: 'GOODCODE', email: 'm@x.org', name: 'Mo' }));
+    const db = env.authenticatedContext('member1').firestore();
+    await assertSucceeds(updateDoc(doc(db, 'members', 'member1'), { role: 'staff' }));
+    await assertSucceeds(updateDoc(doc(db, 'members', 'member1'), { role: 'volunteer' }));
+    await assertFails(updateDoc(doc(db, 'members', 'member1'), { role: 'admin' }));
+    await assertFails(updateDoc(doc(db, 'members', 'member1'), { email: 'x@y.org' }));
+  });
+
+  it("an admin can set anyone's role, but nothing else", async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'members', 'member1'), { code: 'GOODCODE', email: 'm@x.org', name: 'Mo' }));
+    const db = env.authenticatedContext('admin1').firestore();
+    await assertSucceeds(updateDoc(doc(db, 'members', 'member1'), { role: 'staff' }));
+    await assertFails(updateDoc(doc(db, 'members', 'member1'), { role: 'boss' }));
+    await assertFails(updateDoc(doc(db, 'members', 'member1'), { name: 'Other' }));
+  });
+
+  it("cannot set someone else's role", async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'members', 'member1'), { code: 'GOODCODE', email: 'm@x.org', name: 'Mo' }));
+    const db = env.authenticatedContext('stranger').firestore();
+    await assertFails(updateDoc(doc(db, 'members', 'member1'), { role: 'staff' }));
   });
 });
 

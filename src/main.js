@@ -181,7 +181,7 @@ async function enter(user) {
   const member = await getMember(user.uid);
   if (!member) return showJoin(user);
   if (!member.name) return showName(user);
-  ctx = { user, name: member.name, isAdmin: await getIsAdmin(user.uid) };
+  ctx = { user, name: member.name, role: member.role || null, isAdmin: await getIsAdmin(user.uid) };
   renderShell();
   route();
 }
