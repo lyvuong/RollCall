@@ -12,7 +12,8 @@
     "emulators": "firebase emulators:start --only auth,firestore --project demo-rollcall",
     "deploy": "vite build && wrangler pages deploy dist --project-name rollcall",
     "cf:preview": "vite build && wrangler pages dev dist --r2 PHOTOS --binding FIREBASE_PROJECT_ID=rollcall-e85e8",
-    "local": "node scripts/local.mjs"
+    "local": "node scripts/local.mjs",
+    "cf:sandbox": "vite build --mode sandbox && wrangler pages dev dist --r2 PHOTOS --binding FIREBASE_PROJECT_ID=roll-call-sandbox"
   },
   "dependencies": {
     "firebase": "^10.14.1"
