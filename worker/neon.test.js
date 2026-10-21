@@ -102,6 +102,16 @@ describe('event times and location', () => {
     );
     const { events } = await (await call('/api/neon/events?from=2026-10-01&to=2026-10-31')).json();
     expect(events[0]).toMatchObject({ startTime: '17:30', endTime: '19:00', location: 'Lost Dog Cafe' });
+    expect(events[0].registered).toBeNull();
+  });
+
+  it('passes Neon\'s attendee count through as a number', async () => {
+    mockFetch(() =>
+      ok({ pagination: { totalPages: 1 }, searchResults: [{ 'Event ID': '5', 'Event Name': 'A', 'Event Start Date': '2026-10-14', 'Event Registration Attendee Count': '21', Registrants: '10' }] }),
+    );
+    const { events } = await (await call('/api/neon/events?from=2026-10-01&to=2026-10-31')).json();
+    expect(events[0]).toMatchObject({ registered: 21, registrations: 10 });
+    expect(JSON.parse(neonCalls[0].init.body).outputFields).toEqual(expect.arrayContaining(['Event Registration Attendee Count', 'Registrants']));
   });
 });
 

@@ -1,10 +1,10 @@
 import { watchEvent, watchPeople, setAttendance, setRole, addPerson, markRegistrant, saveRegistrants, searchNeonPeople, linkPerson, watchRoster } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { fetchNeonRegistrants } from '../lib/neonApi.js';
-import { registrantMap } from '../lib/neon.js';
+import { registrantUpdates, isImminent } from '../lib/neon.js';
 import { icon } from '../lib/icons.js';
 import { rosterMap, fixedRole as fixedRoleIn } from '../lib/roster.js';
-import { countRoles, personKind, roleOf, formatDay, eventHours, formatHours, totalVolunteerHours } from '../lib/time.js';
+import { ymd, countRoles, personKind, roleOf, formatDay, eventHours, formatHours, totalVolunteerHours } from '../lib/time.js';
 
 const KIND = { osg: { label: 'OSG', icon: 'star' }, community: { label: 'Community', icon: 'users' } };
 const MAX_RESULTS = 12;
@@ -39,16 +39,42 @@ export function participantsView(root, ctx, eventId) {
   const unsubs = [];
   let regTried = false;
 
-  /** A Neon event with no stored names (imported earlier, or the fetch failed then): fetch and save them once. */
+  /**
+   * Fetch an event's registered names once when the page opens: for an event with none stored (imported earlier, or
+   * the fetch failed then), and for today's and tomorrow's events, whose sign-ups and cancellations can change
+   * without Neon's counts moving.
+   */
   async function backfillRegistrants() {
-    if (regTried || !event?.neonEventId || event.registrants) return;
+    if (regTried || !event?.neonEventId) return;
+    if (event.registrants && !isImminent(event.date, ymd())) return;
     regTried = true;
     try {
-      const map = registrantMap(await fetchNeonRegistrants(event.neonEventId), event.registrants);
+      const map = registrantUpdates(await fetchNeonRegistrants(event.neonEventId), event.registrants);
       if (Object.keys(map).length) await saveRegistrants(eventId, map);
     } catch {
-      toast('Could not load registered names from the OSG Website.');
+      if (!event.registrants) toast('Could not load registered names from the OSG Website.');
     }
+  }
+
+  /** Manual check for sign-ups made on the OSG Website since the names were last fetched. */
+  async function refreshRegistrants() {
+    const btn = $('#regRefresh', root);
+    if (!event?.neonEventId || btn.disabled) return;
+    btn.disabled = true;
+    try {
+      const map = registrantUpdates(await fetchNeonRegistrants(event.neonEventId, { force: true }), event.registrants);
+      const added = Object.values(map).filter((r) => r.name).length;
+      const dropped = Object.values(map).filter((r) => r.cancelled === true).length;
+      if (Object.keys(map).length) await saveRegistrants(eventId, map);
+      toast(
+        added || dropped
+          ? [added && `${added} new registration${added === 1 ? '' : 's'}`, dropped && `${dropped} cancelled`].filter(Boolean).join(', ')
+          : 'No changes on the OSG Website',
+      );
+    } catch {
+      toast('Could not reach the OSG Website.');
+    }
+    btn.disabled = false;
   }
 
   root.innerHTML = `
@@ -62,7 +88,8 @@ export function participantsView(root, ctx, eventId) {
       <p id="sub" class="muted" style="margin-top:0"></p>
       <section class="card" id="regCard" hidden>
         <h2 id="regTitle"></h2>
-        <p class="muted tiny">Registered on the OSG Website. Confirm who showed up.</p>
+        <p class="muted tiny">Registered on the OSG Website. Confirm who showed up.
+          <button type="button" class="btn small ghost" id="regRefresh" title="Check the OSG Website for new registrations">${icon('swap')}<span class="wide">Refresh</span></button></p>
         <ul id="regList" class="plist"></ul>
       </section>
       <section class="card">
@@ -79,6 +106,8 @@ export function participantsView(root, ctx, eventId) {
         <button type="button" id="done" class="btn primary block">Done</button>
       </section>
     </div>`;
+
+  $('#regRefresh', root).onclick = refreshRegistrants;
 
   const chip = (p) => {
     const k = KIND[personKind(p.type)];
@@ -132,15 +161,17 @@ export function participantsView(root, ctx, eventId) {
       .sort((a, b) => a.name.localeCompare(b.name));
     $('#regCard', root).hidden = !regs.length;
     if (regs.length) {
-      const n = (st) => regs.filter((r) => (r.status || 'pending') === st).length;
-      $('#regTitle', root).innerHTML = `${icon('check')} Registered (${regs.length}) <span class="muted tiny">${n('present')} here · ${n('missing')} missing · ${n('pending')} to confirm</span>`;
+      const live = regs.filter((r) => !r.cancelled);
+      const n = (st) => live.filter((r) => (r.status || 'pending') === st).length;
+      const dropped = regs.length - live.length;
+      $('#regTitle', root).innerHTML = `${icon('check')} Registered (${live.length}) <span class="muted tiny">${n('present')} here · ${n('missing')} missing · ${n('pending')} to confirm${dropped ? ` · ${dropped} cancelled` : ''}</span>`;
       $('#regList', root).innerHTML = regs
         .map((r) => {
           const st = r.status || 'pending';
           const nm = esc(r.name);
           const btn = (kind, ic, label, cls) =>
             `<button type="button" class="btn small${st === kind ? ` ${cls}` : ' ghost'}" data-reg="${esc(r.key)}" data-st="${kind}" aria-pressed="${st === kind}" aria-label="${label}: ${nm}" title="${st === kind ? 'Tap to undo' : label}">${icon(ic)}<span class="wide">${label}</span></button>`;
-          return `<li class="prow"><span class="nm">${nm}</span>${btn('present', 'check', 'Here', 'primary')}${btn('missing', 'x', 'Missing', 'danger')}</li>`;
+          return `<li class="prow${r.cancelled ? ' cancelled' : ''}"><span class="nm">${nm}${r.cancelled ? ' <span class="muted tiny">cancelled on the OSG Website</span>' : ''}</span>${btn('present', 'check', 'Here', 'primary')}${btn('missing', 'x', 'Missing', 'danger')}</li>`;
         })
         .join('');
     }

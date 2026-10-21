@@ -5,6 +5,7 @@ import {
   addLocation,
   renameLocation,
   deleteLocation,
+  mergeLocations,
   watchPeople,
   updatePerson,
   deletePerson,
@@ -31,6 +32,7 @@ import { ymd, addDays, personKind } from '../lib/time.js';
 import { getPref, setPref } from '../lib/theme.js';
 import { planPeopleSync, daysSince } from '../lib/peopleSync.js';
 import { fetchAllNeonAccounts } from '../lib/neonApi.js';
+import { findDuplicateLocations, matchLocation } from '../lib/locations.js';
 import { findDuplicateGroups, attendanceStats, inactivePeople, ignoredPairs } from '../lib/people.js';
 
 const fail = (msg) => () => toast(msg);
@@ -55,18 +57,14 @@ export function settingsView(root, ctx) {
     </section>
 
     <section class="card">
-      <h2>${icon('user')} My role</h2>
-      <p class="muted">Staff can take part in events but are not volunteers, so their time never counts toward volunteer hours. Volunteers can do both.</p>
-      <div class="seg" id="roleSeg" role="group" aria-label="My role">
-        <button type="button" data-r="staff">${icon('shield')} Staff</button>
-        <button type="button" data-r="volunteer">${icon('heart')} Volunteer</button>
-      </div>
-      <p class="muted" id="roleNote"></p>
-    </section>
-
-    <section class="card">
       <h2>${icon('pin')} Locations</h2>
       <div id="locs" class="tags"></div>
+      <div id="locDups" class="locdups" aria-live="polite"></div>
+      <form id="locMergeBar" class="add" hidden>
+        <select id="locKeep" class="input" aria-label="Location to keep"></select>
+        <button class="btn" type="submit">${icon('swap')} <span id="locMergeLbl"></span></button>
+        <button class="btn ghost" type="button" id="locMergeClear" aria-label="Clear selection" title="Clear selection">${icon('x')}</button>
+      </form>
       <form id="locForm" class="add">
         <input id="locName" class="input" placeholder="New location" maxlength="80" required aria-label="New location" />
         <button class="btn" type="submit">${icon('plus')} Add</button>
@@ -124,6 +122,16 @@ export function settingsView(root, ctx) {
     }
 
     <section class="card">
+      <h2>${icon('user')} My role</h2>
+      <p class="muted">Staff can take part in events but are not volunteers, so their time never counts toward volunteer hours. Volunteers can do both.</p>
+      <div class="seg" id="roleSeg" role="group" aria-label="My role">
+        <button type="button" data-r="staff">${icon('shield')} Staff</button>
+        <button type="button" data-r="volunteer">${icon('heart')} Volunteer</button>
+      </div>
+      <p class="muted" id="roleNote"></p>
+    </section>
+
+    <section class="card">
       <h2>${icon('user')} Account</h2>
       <p class="muted">${esc(ctx.name || '')} · ${esc(ctx.user.email)}${ctx.isAdmin ? ' · admin' : ''}</p>
       <button class="btn" id="signout">${icon('logout')} Sign out</button>
@@ -140,21 +148,76 @@ export function settingsView(root, ctx) {
 
   /* ----- locations ----- */
 
+  const locPicked = new Set(); // location ids selected for merging
+
+  const renderLocMerge = () => {
+    for (const id of locPicked) if (!locations.some((l) => l.id === id)) locPicked.delete(id);
+    const sel = locations.filter((l) => locPicked.has(l.id));
+    $('#locMergeBar', root).hidden = sel.length === 0;
+    if (!sel.length) return;
+    const keepEl = $('#locKeep', root);
+    const prev = keepEl.value;
+    keepEl.innerHTML = sel.map((l) => `<option value="${esc(l.id)}">Keep: ${esc(l.name)}</option>`).join('');
+    keepEl.value = sel.some((l) => l.id === prev) ? prev : [...sel].sort((a, b) => b.name.length - a.name.length)[0].id;
+    $('#locMergeLbl', root).innerHTML = sel.length > 1 ? `Merge ${sel.length} <span class="wide">into one</span>` : 'Select another to merge';
+    $('#locMergeBar', root).querySelector('button[type=submit]').disabled = sel.length < 2;
+  };
+
   const renderLocs = () => {
+    renderLocMerge();
     $('#locs', root).innerHTML = locations.length
       ? locations
-          .map(
-            (l) => `<span class="tag" data-id="${esc(l.id)}">${icon('pin')}<button type="button" class="tname" data-act="rename" title="Tap to rename">${esc(l.name)}</button><button type="button" class="mb del" data-act="del" aria-label="Delete ${esc(l.name)}" title="Delete">${icon('x')}</button></span>`,
-          )
+          .map((l) => {
+            const on = locPicked.has(l.id);
+            return `<span class="tag" data-id="${esc(l.id)}"><button type="button" class="mb sel${on ? ' on' : ''}" data-act="pick" aria-pressed="${on}" aria-label="Select ${esc(l.name)} to merge" title="Select to merge">${icon('check')}</button><button type="button" class="tname" data-act="rename" title="Tap to rename">${esc(l.name)}</button><button type="button" class="mb del" data-act="del" aria-label="Delete ${esc(l.name)}" title="Delete">${icon('x')}</button></span>`;
+          })
           .join('')
       : '<span class="muted">No locations yet.</span>';
+    const groups = findDuplicateLocations(locations);
+    $('#locDups', root).innerHTML = groups.length
+      ? `<p class="muted">Possible duplicates:</p>` +
+        groups
+          .map(
+            (g, i) => `<div class="locdup"><span>${g.map((l) => esc(l.name)).join(' <span class="muted">·</span> ')}</span> <button type="button" class="btn small" data-dup="${i}">${icon('swap')} Select to merge</button></div>`,
+          )
+          .join('')
+      : '';
+  };
+  $('#locDups', root).onclick = (ev) => {
+    const b = ev.target.closest('[data-dup]');
+    if (!b) return;
+    findDuplicateLocations(locations)[Number(b.dataset.dup)]?.forEach((l) => locPicked.add(l.id));
+    renderLocs();
+    toast('Selected. Choose the name to keep, then merge.');
+  };
+  $('#locMergeClear', root).onclick = () => (locPicked.clear(), renderLocs());
+  $('#locMergeBar', root).onsubmit = async (ev) => {
+    ev.preventDefault();
+    const keep = locations.find((l) => l.id === $('#locKeep', root).value);
+    const ids = [...locPicked];
+    if (!keep || ids.length < 2) return;
+    const others = locations.filter((l) => ids.includes(l.id) && l.id !== keep.id);
+    if (!confirm(`Merge ${others.map((l) => `"${l.name}"`).join(', ')} into "${keep.name}"? Their events move to "${keep.name}" and the other names are deleted.`)) return;
+    const btn = ev.target.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      const n = await mergeLocations(keep.id, ids);
+      locPicked.clear();
+      toast(`Merged into ${keep.name} · ${n} event${n === 1 ? '' : 's'} updated`);
+    } catch {
+      toast('Could not merge.');
+    }
+    renderLocs();
   };
   $('#locs', root).onclick = (ev) => {
     const btn = ev.target.closest('button');
     const li = ev.target.closest('[data-id]');
     if (!btn || !li) return;
     const loc = locations.find((l) => l.id === li.dataset.id);
-    if (btn.dataset.act === 'rename') {
+    if (btn.dataset.act === 'pick') {
+      if (!locPicked.delete(loc.id)) locPicked.add(loc.id);
+      renderLocs();
+    } else if (btn.dataset.act === 'rename') {
       const name = prompt('Rename location', loc.name);
       if (name && name.trim()) renameLocation(loc.id, name).catch(fail('Could not rename.'));
     } else if (confirm(`Delete "${loc.name}"? Events keep their old reference but it will show no name.`)) {
@@ -165,6 +228,8 @@ export function settingsView(root, ctx) {
     ev.preventDefault();
     const input = $('#locName', root);
     if (!input.value.trim()) return;
+    const dup = matchLocation(locations, input.value);
+    if (dup) return toast(`"${dup.name}" is already in the list.`);
     addLocation(input.value).catch(fail('Could not add.'));
     input.value = '';
   };

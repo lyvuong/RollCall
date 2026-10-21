@@ -3,7 +3,7 @@ import { loadExisting, newId, commitOps, eventHasPhotos, deleteEvents } from '..
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { ymd, addDays } from '../lib/time.js';
-import { planNeonEvents, emptyPastNeonEvents } from '../lib/neon.js';
+import { planNeonEvents, emptyPastNeonEvents, staleRegistrantEvents } from '../lib/neon.js';
 
 export function neonView(root, ctx) {
   if (!ctx.isAdmin) {
@@ -40,7 +40,7 @@ export function neonView(root, ctx) {
 
   function render() {
     const s = plan.stats;
-    const problems = plan.rows.filter((r) => r.status !== 'ok' || /registered name/.test(r.message));
+    const problems = plan.rows.filter((r) => r.status !== 'ok' || /registered name|cancelled/.test(r.message));
     const writes = plan.ops.length;
     box.hidden = false;
     box.innerHTML = `
@@ -139,9 +139,10 @@ export function neonView(root, ctx) {
         neonApi(`events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
         loadExisting(),
       ]);
-      // Registered names, so staff can confirm who came. Skip events that already have them stored.
+      // Registered names, so staff can confirm who came. Skip events whose stored names are up to date with Neon's count.
+      const stale = new Set(staleRegistrantEvents(events, existing.events, today).map((n) => String(n.neonEventId)));
       const have = new Set(existing.events.filter((e) => e.registrants && e.neonEventId).map((e) => String(e.neonEventId)));
-      const ids = [...new Set(events.map((e) => String(e.neonEventId)))].filter((id) => !have.has(id));
+      const ids = [...new Set(events.map((e) => String(e.neonEventId)))].filter((id) => !have.has(id) || stale.has(id));
       const { byEvent, failed } = await fetchRegistrantsFor(ids, (done, total) => {
         box.innerHTML = `<p class="muted">Loading registered names… ${done} of ${total} events</p>`;
       });

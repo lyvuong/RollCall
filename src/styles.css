@@ -202,6 +202,11 @@ textarea.input { resize: vertical; }
 .filter .dates { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .day { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 20px 4px 8px; font-weight: 700; }
 .day.today { color: var(--primary-ink); }
+.day-toggle { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; padding: 4px 0; cursor: pointer; text-align: left; }
+.day-toggle .dchev { display: inline-flex; transition: transform .15s; }
+.day-toggle.open .dchev { transform: rotate(90deg); }
+.day-toggle .dlbl { flex: 0 1 auto; }
+.day-toggle .dcount { font-size: .72rem; padding: 1px 7px; border-radius: 999px; background: var(--border, rgba(127,127,127,.2)); color: var(--muted); letter-spacing: 0; }
 .card.event {
   display: block; color: var(--text); border-left: 8px solid var(--mint-ink); padding: 14px 16px;
   transition: transform .1s, box-shadow .1s;
@@ -546,4 +551,9 @@ button.badge.neon-import:disabled { opacity: .6; cursor: wait; }
 /* Neon registrants: the chosen answer is filled in */
 .prow .btn.small.danger[aria-pressed="true"] { background: var(--rose-bg); color: var(--rose-ink); border-color: transparent; }
 .pill.reg { background: var(--mint-bg); color: var(--mint-ink); }
+.locdups { margin: 8px 0; }
+.locdups p { margin: 0 0 6px; }
+.locdup { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
+.prow.cancelled .nm { opacity: .65; text-decoration: line-through; text-decoration-color: var(--rose-ink); }
+.prow.cancelled .nm .tiny { text-decoration: none; display: inline-block; }
 .selfrow { margin: 0 0 10px; }
