@@ -80,10 +80,10 @@ async function loadRegistrants(neonEventId, force = false) {
 }
 
 /**
- * Registrants for several events, a few requests at a time (Neon rate-limits).
+ * Registrants for several events, a few requests at a time (Neon rate-limits). force skips the 5-minute caches.
  * Resolves { byEvent: {neonEventId: [...]}, failed: n }; a failed event is simply left out.
  */
-export async function fetchRegistrantsFor(neonEventIds, onProgress = () => {}, concurrency = 4) {
+export async function fetchRegistrantsFor(neonEventIds, onProgress = () => {}, concurrency = 4, { force = false } = {}) {
   const byEvent = {};
   let failed = 0;
   let next = 0;
@@ -92,7 +92,7 @@ export async function fetchRegistrantsFor(neonEventIds, onProgress = () => {}, c
     while (next < neonEventIds.length) {
       const id = neonEventIds[next++];
       try {
-        byEvent[id] = await fetchNeonRegistrants(id);
+        byEvent[id] = await fetchNeonRegistrants(id, { force });
       } catch {
         failed++;
       }

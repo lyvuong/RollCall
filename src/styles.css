@@ -261,6 +261,8 @@ textarea.input { resize: vertical; }
 .narrow, .meta .narrow { display: none; }
 .counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
 .pill b { font-weight: 800; }
+button.pill { appearance: none; border: 0; font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; }
+button.pill[aria-pressed='true'] { outline: 2px solid currentColor; outline-offset: 1px; }
 .fab { position: static; flex: none; width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 12px; box-shadow: none; font-size: .92rem; }
 .fab .i { width: 20px; height: 20px; }
 .bar-actions { display: inline-flex; gap: 8px; flex: none; }

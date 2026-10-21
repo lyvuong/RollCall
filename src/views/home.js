@@ -46,7 +46,7 @@ export const PRESETS = [
 // Remembered across navigation within the session.
 const refreshing = new Set(); // registrant refreshes already tried this session (see refreshRegistrants)
 let range = null;
-const open = new Set(); // expanded event cards
+const open = new Map(); // expanded event cards: id -> 'all' | 'vol' | 'mem' | 'reg' (which names to list)
 const dayToggled = new Map(); // date -> open?, for day groups the user opened or closed (others use the default)
 let filterOpen = false; // date-range card expanded?
 let fixOnly = false; // only events that still need volunteers identified, across all dates
@@ -242,6 +242,14 @@ export function homeView(root, _ctx) {
     if (changed) renderList();
   }
 
+  /** A count pill; with a count above zero it is a button that lists those names under the card. */
+  function pill(e, which, n, title, ic, label) {
+    const body = `${ic}<b>${n}</b><span class="wide">${label}</span>`;
+    if (!n) return `<span class="pill ${which}" title="${title}">${body}</span>`;
+    const on = open.get(e.id) === which;
+    return `<button type="button" class="pill ${which}" data-who="${which}" aria-pressed="${on}" title="${title}: tap to ${on ? 'hide' : 'show'} the names">${body}</button>`;
+  }
+
   function card(e) {
     const photos = photosByEvent.get(e.id) || [];
     const { volunteers, participants } = countRoles(e.attendees);
@@ -268,9 +276,9 @@ export function homeView(root, _ctx) {
           ${loc ? `<span>${icon('pin')}${esc(loc)}</span>` : ''}
         </div>
         <div class="stats">
-          <span class="pill vol" title="Volunteers">${icon('heart')}<b>${volunteers}</b><span class="wide">volunteer${volunteers === 1 ? '' : 's'}</span></span>
-          ${registered ? `<span class="pill reg" title="Registered on the OSG Website">${icon('file')}<b>${registered}</b><span class="wide">registered</span></span>` : ''}
-          <span class="pill mem" title="Participants">${icon('users')}<b>${participants}</b><span class="wide">participant${participants === 1 ? '' : 's'}</span></span>
+          ${pill(e, 'vol', volunteers, 'Volunteers', icon('heart'), `volunteer${volunteers === 1 ? '' : 's'}`)}
+          ${registered ? pill(e, 'reg', registered, 'Registered on the OSG Website', icon('file'), 'registered') : ''}
+          ${pill(e, 'mem', participants, 'Participants', icon('users'), `participant${participants === 1 ? '' : 's'}`)}
           <span class="pill hrs" title="Total volunteer hours">${icon('hourglass')}<b>${formatHours(totalVolunteerHours(e))}</b> hrs</span>
           ${needsVolunteers(e) ? `<span class="pill warn" title="Recorded hours, but no volunteers identified">${icon('alert')}<span class="wide">Assign volunteers</span></span>` : ''}
           ${
@@ -279,7 +287,7 @@ export function homeView(root, _ctx) {
               : ''
           }
         </div>
-        ${open.has(e.id) ? `<div class="who">${whoHtml(e)}${thumbsHtml(e, photos)}</div>` : ''}
+        ${open.has(e.id) ? `<div class="who">${whoHtml(e, open.get(e.id))}${thumbsHtml(e, photos)}</div>` : ''}
       </article>`;
   }
 
@@ -306,7 +314,7 @@ export function homeView(root, _ctx) {
     if (!ev || btn.disabled) return;
     btn.disabled = true;
     try {
-      const [existing, { byEvent, failed }] = await Promise.all([loadExisting(), fetchRegistrantsFor([String(ev.neonEventId)])]);
+      const [existing, { byEvent, failed }] = await Promise.all([loadExisting(), fetchRegistrantsFor([String(ev.neonEventId)], undefined, 1, { force: true })]);
       const plan = planNeonEvents([ev], existing, newId, byEvent);
       const op = plan.ops.find((o) => o.col === 'events');
       if (!op) throw new Error('nothing to import');
@@ -355,8 +363,17 @@ export function homeView(root, _ctx) {
     checkCheckins();
   }
 
-  function whoHtml(e) {
-    const rows = Object.values(e.attendees || {}).sort((a, b) => a.name.localeCompare(b.name));
+  function whoHtml(e, which = 'all') {
+    if (which === 'reg') {
+      const regs = Object.values(e.registrants || {}).filter((r) => !r.cancelled && r.name).sort((x, y) => x.name.localeCompare(y.name));
+      if (!regs.length) return '<span class="muted">Nobody registered.</span>';
+      return regs
+        .map((r) => `<span class="pn"><span class="pname">${r.status === 'present' ? icon('check') : ''}${esc(r.name)}</span></span>`)
+        .join('<span class="sep">, </span>');
+    }
+    const rows = Object.values(e.attendees || {})
+      .filter((a) => which === 'all' || (which === 'vol') === (roleOf(a) === 'volunteer'))
+      .sort((a, b) => a.name.localeCompare(b.name));
     if (!rows.length) return '<span class="muted">No participants yet.</span>';
     return rows
       .map((a) => {
@@ -398,12 +415,19 @@ export function homeView(root, _ctx) {
       const e = events.find((x) => x.id === mrg.dataset.merge);
       return e && openMergeDialog({ event: e, locationName: e.locationId ? locations[e.locationId] || '' : '' });
     }
+    const who = ev.target.closest('[data-who]');
+    if (who) {
+      const id = who.closest('[data-id]').dataset.id;
+      if (open.get(id) === who.dataset.who) open.delete(id);
+      else open.set(id, who.dataset.who);
+      return renderList();
+    }
     if (ev.target.closest('a,button')) return;
     const card = ev.target.closest('[data-id]');
     if (!card) return;
     const id = card.dataset.id;
     if (open.has(id)) open.delete(id);
-    else open.add(id);
+    else open.set(id, 'all');
     renderList();
   };
   $('#fToggle', root).onclick = () => setFilterOpen(!filterOpen);
