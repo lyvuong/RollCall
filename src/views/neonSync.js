@@ -10,10 +10,11 @@ const show = (field, v) => (!v ? '—' : SHOW_TIME.has(field) ? formatTime(v) : 
 /**
  * "Out of sync" chip for an imported event, plus the dialog that previews and sends the changes to the OSG Website.
  * host: element to render the chip into. getEvent() -> the current local event; getLocationName() -> its place.
+ * onSnapshot(attendees) (optional) is told the OSG Website's attendees each time they are fetched.
  * Returns { update(), destroy() }; call update() whenever the event changes (it only re-checks when something
  * that is compared has changed).
  */
-export function mountNeonSync(host, { getEvent, getLocationName }) {
+export function mountNeonSync(host, { getEvent, getLocationName, onSnapshot }) {
   let state = 'idle'; // idle | checking | ok | out | error
   let snap = null; // {event, attendees, canWrite}
   let plan = null;
@@ -23,12 +24,13 @@ export function mountNeonSync(host, { getEvent, getLocationName }) {
   let seq = 0;
   let dlg = null;
   let sending = false;
+  let afterSync = null; // set by review(): runs once a send brings the event in sync
   let failures = []; // [{name, reason}] from the last send, shown in the dialog until the next one
 
   const signature = () => {
     const e = getEvent();
     if (!e?.neonEventId) return '';
-    const regs = Object.entries(e.registrants || {}).map(([k, r]) => `${k}:${r.status || 'pending'}`).sort();
+    const regs = [...Object.entries(e.registrants || {}).map(([k, r]) => `${k}:${r.status || 'pending'}`), ...Object.values(e.attendees || {}).map((a) => `a:${a.name}`)].sort();
     return JSON.stringify([e.neonEventId, e.name, e.date, e.startTime, e.endTime, getLocationName(), regs]);
   };
 
@@ -60,6 +62,7 @@ export function mountNeonSync(host, { getEvent, getLocationName }) {
       const s = await fetchNeonSync(e.neonEventId);
       if (mine !== seq) return;
       snap = s;
+      onSnapshot?.(s.attendees);
       plan = neonSyncPlan(getEvent(), s.event, s.attendees, getLocationName());
       state = plan.inSync ? 'ok' : 'out';
     } catch {
@@ -89,6 +92,7 @@ export function mountNeonSync(host, { getEvent, getLocationName }) {
     dlg = document.createElement('dialog');
     dlg.className = 'sync-dlg';
     dlg.addEventListener('close', () => {
+      afterSync = null;
       dlg.remove();
       dlg = null;
     });
@@ -110,6 +114,7 @@ export function mountNeonSync(host, { getEvent, getLocationName }) {
     const names = (list) => list.map((c) => esc(c.name)).join(', ');
     const here = (plan?.checkins || []).filter((c) => c.attended);
     const notHere = (plan?.checkins || []).filter((c) => !c.attended);
+    const walk = plan?.walkins || [];
     const reasons = [...new Set(failures.map((f) => f.reason))];
     const failHtml = failures.length
       ? `<div class="notice warn">${icon('alert')} <span><b>${failures.length} could not be sent</b> (${esc(failures.slice(0, 5).map((f) => f.name).join(', '))}${failures.length > 5 ? '…' : ''}).<br>${reasons.map(esc).join('<br>')}</span></div>`
@@ -122,6 +127,7 @@ export function mountNeonSync(host, { getEvent, getLocationName }) {
           : `
         ${detailRows ? `<h3>Event details</h3><table class="sync-tbl"><tbody>${detailRows}</tbody></table>` : ''}
         ${here.length ? `<h3>Mark as here (${here.length})</h3><p>${names(here)}</p>` : ''}
+        ${walk.length ? `<h3>Register on the OSG Website and mark as here (${walk.length})</h3><p>${names(walk)}</p><p class="muted tiny">Anyone without an OSG account goes in as a guest under your account.</p>` : ''}
         ${notHere.length ? `<h3>Mark as not here (${notHere.length})</h3><p>${names(notHere)}</p>` : ''}
         ${writable ? '' : `<p class="notice warn">${icon('alert')} <span>Sending to the OSG Website is turned off on this site.</span></p>`}`;
     dlg.innerHTML = `
@@ -157,12 +163,40 @@ export function mountNeonSync(host, { getEvent, getLocationName }) {
         : `Sent ${sent} change${sent === 1 ? '' : 's'} to the OSG Website.`,
     );
     await check();
-    if (dlg && plan?.inSync) dlg.close();
-    else renderDialog();
+    if (dlg && plan?.inSync) {
+      const next = afterSync;
+      dlg.close();
+      next?.();
+    } else renderDialog();
+  }
+
+  /**
+   * Check the OSG Website right now and, when the event differs, open the send dialog. Resolves true when it opened
+   * (the caller stays put); onSynced runs if the user then sends and the event ends up in sync. False when the event is
+   * not linked, in sync, or the OSG Website could not be reached.
+   */
+  async function review(onSynced) {
+    if (!getEvent()?.neonEventId) return false;
+    forgetNeonCache();
+    clearTimeout(timer);
+    // The page's own check may overtake this one, and the event may still be settling after a save: look again until
+    // a check finishes on the same event data we asked about.
+    for (let i = 0; i < 4; i++) {
+      const asked = signature();
+      sig = asked;
+      await check();
+      for (let wait = 0; state === 'checking' && wait < 50; wait++) await new Promise((r) => setTimeout(r, 200));
+      if (signature() === asked) break;
+    }
+    if (state !== 'out') return false;
+    openDialog();
+    afterSync = onSynced;
+    return true;
   }
 
   return {
     update,
+    review,
     destroy() {
       clearTimeout(timer);
       seq++;

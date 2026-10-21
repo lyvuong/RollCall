@@ -148,6 +148,25 @@ export async function pushNeonSync(neonEventId, plan, neonEvent) {
       failed.push({ name: c.name, reason: friendlyNeonReason(e.message) });
     }
   }
+  if (plan.walkins?.length) {
+    // Walk-ins: their own OSG account when exactly one matches the name, else a guest filed under the staff member's account.
+    const email = auth.currentUser?.email;
+    const staff = email ? (await searchNeonAccountsByEmail(email).catch(() => []))[0] : null;
+    for (const w of plan.walkins) {
+      try {
+        const [firstName, ...rest] = String(w.name).split(' ');
+        const lastName = rest.join(' ');
+        const accounts = await searchNeonAccounts(w.name);
+        if (accounts.length > 1) throw new Error('Several OSG accounts have this name. Register them on the OSG Website.');
+        if (accounts.length === 1) await createNeonRegistration(neonEventId, accounts[0]);
+        else if (staff) await createNeonRegistration(neonEventId, { registrantAccountId: staff.accountId, firstName, lastName });
+        else throw new Error('No OSG account found for your sign-in email, so guests cannot be added.');
+        sent++;
+      } catch (e) {
+        failed.push({ name: w.name, reason: friendlyNeonReason(e.message) });
+      }
+    }
+  }
   forgetNeonCache();
   return { sent, failed };
 }

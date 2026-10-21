@@ -1,5 +1,6 @@
 import { parseDate, parseTime } from './importer.js';
 import { toMinutes, addDays } from './time.js';
+import { matchParticipants, isCancelled } from './neonMerge.js';
 
 const lower = (s) => String(s || '').trim().toLowerCase();
 const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
@@ -232,7 +233,10 @@ const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
  *   locationName  the local location's name ('' for virtual or unset)
  * Times and locations RollCall merely defaulted are not differences: a field is only compared when both sides
  * have a value. Registrants still 'pending' are never pushed; 'present' -> attended, 'missing' -> not attended.
- * Returns { details:[{field,label,local,neon}], checkins:[{attendeeId,registrationId,name,attended}], count, inSync }.
+ * People on the roll who are registered on Neon but not marked attended are checked in too; people on the roll
+ * with no Neon registration at all (found by name) are walk-ins to register.
+ * Returns { details:[{field,label,local,neon}], checkins:[{attendeeId,registrationId,name,attended}],
+ *           walkins:[{personId,name}], count, inSync }.
  */
 export function neonSyncPlan(event, neonEvent, attendees, locationName = '') {
   const details = [];
@@ -245,21 +249,46 @@ export function neonSyncPlan(event, neonEvent, attendees, locationName = '') {
   if (loc && lower(loc) !== lower(clean(neonEvent.location))) add('location', 'Location', loc, clean(neonEvent.location));
 
   const checkins = [];
+  const walkins = [];
   if (attendees) {
     const byId = new Map(attendees.map((a) => [String(a.attendeeId), a]));
-    for (const [key, r] of Object.entries(event.registrants || {})) {
+    const matches = matchParticipants(event.attendees, attendees);
+    const onRoll = new Set(matches.filter((m) => m.attendee).map((m) => String(m.attendee.attendeeId)));
+    const rollKnown = event.attendees !== undefined; // the roll is the truth about who attended, once there is one
+    const regs = event.registrants || {};
+    for (const [key, r] of Object.entries(regs)) {
       const status = r.status || 'pending';
       if (status === 'pending') continue;
       const a = byId.get(String(key));
-      const attended = status === 'present';
+      // A registrant confirmed Here counts as attended only while still on the roll (removing them from it unchecks them).
+      const attended = status === 'present' && (!rollKnown || onRoll.has(String(key)));
       if (a?.registrationId && a.markedAttended !== attended) {
         checkins.push({ attendeeId: String(key), registrationId: String(a.registrationId), name: r.name || a.name, attended });
       }
     }
+    const decided = new Set(checkins.map((c) => c.attendeeId));
+    for (const m of matches) {
+      if (!m.attendee) walkins.push({ personId: m.personId, name: m.name });
+      else if (!m.attendee.markedAttended && m.attendee.registrationId && !decided.has(String(m.attendee.attendeeId)) && regs[m.attendee.attendeeId]?.status !== 'missing') {
+        decided.add(String(m.attendee.attendeeId));
+        checkins.push({ attendeeId: String(m.attendee.attendeeId), registrationId: String(m.attendee.registrationId), name: m.name, attended: true });
+      }
+    }
+    // Marked attended on Neon, not on the roll, and unknown to RollCall's registered list (e.g. a walk-in sent earlier, then removed).
+    const rollTaken = rollKnown && (Object.keys(event.attendees).length > 0 || Object.values(regs).some((r) => (r.status || 'pending') !== 'pending'));
+    if (rollTaken) {
+      for (const a of attendees) {
+        const id = String(a.attendeeId);
+        if (a.markedAttended && a.registrationId && a.name && !onRoll.has(id) && !regs[id] && !decided.has(id) && !isCancelled(a.status)) {
+          decided.add(id);
+          checkins.push({ attendeeId: id, registrationId: String(a.registrationId), name: a.name, attended: false });
+        }
+      }
+    }
     checkins.sort((x, y) => x.name.localeCompare(y.name));
   }
-  const count = details.length + checkins.length;
-  return { details, checkins, count, inSync: count === 0 };
+  const count = details.length + checkins.length + walkins.length;
+  return { details, checkins, walkins, count, inSync: count === 0 };
 }
 
 /** The Neon event patch ({name?, date?, endDate?, startTime?, endTime?, location?}) that makes `details` true. */

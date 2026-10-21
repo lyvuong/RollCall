@@ -370,6 +370,7 @@ button.pill[aria-pressed='true'] { outline: 2px solid currentColor; outline-offs
 .pn.osg .pname { color: var(--sky-ink); }
 .pn.community .pname { color: var(--mint-ink); }
 .pn.staff .pname { color: var(--peach-ink); }
+.pn.staged .pname { font-style: italic; }
 .pn.gone .pname { text-decoration: line-through; opacity: .6; }
 .pname .who { margin-right: 3px; color: inherit; }
 .pname .who .i { width: .8em; height: .8em; margin: 0; color: inherit; vertical-align: -1px; }

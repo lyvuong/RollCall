@@ -255,6 +255,38 @@ describe('neonSyncPlan', () => {
     expect(plan.count).toBe(2);
   });
 
+  it('registers roll people missing from Neon and checks in registered ones not yet marked', () => {
+    const attendees = [
+      { attendeeId: '1', registrationId: '90', name: 'Ada Lovelace', markedAttended: false },
+      { attendeeId: '2', registrationId: '91', name: 'Bo Peep', markedAttended: true },
+    ];
+    const roll = { p1: { name: 'Ada Lovelace' }, p2: { name: 'Bo Peep' }, p3: { name: 'Walk In' } };
+    const plan = neonSyncPlan({ ...ev, attendees: roll }, neon, attendees, 'Cadence');
+    expect(plan.checkins).toEqual([{ attendeeId: '1', registrationId: '90', name: 'Ada Lovelace', attended: true }]);
+    expect(plan.walkins).toEqual([{ personId: 'p3', name: 'Walk In' }]);
+    expect(plan.count).toBe(2);
+  });
+
+  it('unchecks people removed from the roll', () => {
+    const attendees = [
+      { attendeeId: '1', registrationId: '90', name: 'Ada Lovelace', markedAttended: true }, // confirmed Here, then removed from the roll
+      { attendeeId: '2', registrationId: '91', name: 'Bo Peep', markedAttended: true }, // walk-in sent earlier, since removed
+      { attendeeId: '3', registrationId: '92', name: 'Cy Young', markedAttended: true }, // still on the roll
+      { attendeeId: '4', registrationId: '93', name: 'Di Dee', markedAttended: true }, // pending registrant: left alone
+    ];
+    const registrants = { 1: { name: 'Ada Lovelace', status: 'present' }, 3: { name: 'Cy Young', status: 'present' }, 4: { name: 'Di Dee' } };
+    const plan = neonSyncPlan({ ...ev, registrants, attendees: { p3: { name: 'Cy Young' } } }, neon, attendees, 'Cadence');
+    expect(plan.checkins).toEqual([
+      { attendeeId: '1', registrationId: '90', name: 'Ada Lovelace', attended: false },
+      { attendeeId: '2', registrationId: '91', name: 'Bo Peep', attended: false },
+    ]);
+  });
+
+  it('does not uncheck anyone before a roll has been taken', () => {
+    const attendees = [{ attendeeId: '1', registrationId: '90', name: 'Ada', markedAttended: true }];
+    expect(neonSyncPlan({ ...ev, attendees: {} }, neon, attendees, 'Cadence').checkins).toEqual([]);
+  });
+
   it('skips check-ins when attendees are not loaded', () => {
     expect(neonSyncPlan({ ...ev, registrants: { 1: { name: 'Ada', status: 'present' } } }, neon, null, 'Cadence').checkins).toEqual([]);
   });

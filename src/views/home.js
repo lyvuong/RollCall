@@ -224,9 +224,9 @@ export function homeView(root, _ctx) {
    */
   async function checkCheckins() {
     const seq = neonSeq;
-    const regSig = (e) => JSON.stringify(Object.entries(e.registrants || {}).map(([k, r]) => [k, r.status || 'pending']).sort());
+    const regSig = (e) => JSON.stringify([Object.entries(e.registrants || {}).map(([k, r]) => [k, r.status || 'pending']).sort(), Object.values(e.attendees || {}).map((a) => a.name).sort()]);
     const todo = events.filter(
-      (e) => e.neonEventId && e.date <= ymd() && Object.values(e.registrants || {}).some((r) => (r.status || 'pending') !== 'pending') && checkinDiff.get(e.id)?.sig !== regSig(e),
+      (e) => e.neonEventId && e.date <= ymd() && (Object.keys(e.attendees || {}).length || Object.values(e.registrants || {}).some((r) => (r.status || 'pending') !== 'pending')) && checkinDiff.get(e.id)?.sig !== regSig(e),
     );
     if (!todo.length) return;
     const { byEvent } = await fetchRegistrantsFor(todo.map((e) => String(e.neonEventId)));
@@ -235,7 +235,8 @@ export function homeView(root, _ctx) {
     for (const e of todo) {
       const list = byEvent[String(e.neonEventId)];
       if (!list) continue; // Neon unreachable for this one: say nothing
-      const n = neonSyncPlan(e, { name: e.name, date: e.date }, list, '').checkins.length;
+      const p = neonSyncPlan(e, { name: e.name, date: e.date }, list, '');
+      const n = p.checkins.length + p.walkins.length;
       if ((checkinDiff.get(e.id)?.n || 0) !== n) changed = true;
       checkinDiff.set(e.id, { sig: regSig(e), n });
     }
