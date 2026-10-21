@@ -4,17 +4,20 @@ import {
   fetchNeonSync,
   searchNeonAccounts,
   createNeonRegistration,
+  searchNeonAccountsByEmail,
   pushNeonSync,
   forgetNeonCache,
   neonInfo,
 } from '../lib/neonApi.js';
 import { neonSyncPlan, friendlyNeonReason } from '../lib/neon.js';
 import { similarNeonEvents, matchParticipants, planMerge, planMove } from '../lib/neonMerge.js';
+import { auth } from '../firebase.js';
 import { esc, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { addDays, formatDay, formatTime } from '../lib/time.js';
 
 const ACCOUNT_LOOKUPS_AT_ONCE = 3;
+const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 
 /**
  * Merge a RollCall event into the event that already exists on the OSG Website.
@@ -40,6 +43,7 @@ export function openMergeDialog({ event, locationName = '' }) {
   let rows = []; // participants: {personId, name, role, attendee, include, accounts, choice, lookup}
   let result = null;
   let info = null;
+  let staffAccount = null; // the signed-in staff member's OSG account: guests are filed under it
   let error = '';
 
   const shell = (inner) => {
@@ -56,6 +60,8 @@ export function openMergeDialog({ event, locationName = '' }) {
   async function findCandidates() {
     try {
       info = await neonInfo();
+      const email = auth.currentUser?.email;
+      if (email) staffAccount = (await searchNeonAccountsByEmail(email).catch(() => []))[0] || null;
       const [list, ex] = await Promise.all([fetchNeonEvents(addDays(event.date, -1), addDays(event.date, 1)), loadExisting()]);
       existing = ex;
       if (!list) throw new Error('unreachable');
@@ -163,21 +169,22 @@ export function openMergeDialog({ event, locationName = '' }) {
   const summary = () => {
     const mark = rows.filter((r) => r.include && r.attendee);
     const reg = rows.filter((r) => r.include && !r.attendee && r.choice);
-    const stuck = rows.filter((r) => r.include && !r.attendee && !r.choice);
-    return { mark, reg, stuck };
+    const guests = rows.filter((r) => r.include && !r.attendee && !r.choice && r.accounts && !r.accounts.length && staffAccount);
+    const stuck = rows.filter((r) => r.include && !r.attendee && !r.choice && !guests.includes(r));
+    return { mark, reg, guests, stuck };
   };
 
   function personRow(r, i) {
     let what;
     if (r.attendee) what = `<span class="ok-text">${icon('check')} Registered, will be marked Here</span>`;
     else if (r.accounts === null) what = '<span class="muted">Looking up the OSG account…</span>';
-    else if (!r.accounts.length) what = `<span class="warn-text">${icon('alert')} No OSG account with this name, so not registered</span>`;
+    else if (!r.accounts.length) what = staffAccount ? `No OSG account with this name. Will register as a <b>Guest</b> (${esc(r.name)}) under your OSG account and mark Here` : `<span class="warn-text">${icon('alert')} No OSG account with this name, and none found for your sign-in email, so not registered</span>`;
     else if (r.accounts.length === 1) what = `Not registered. Will register <b>${esc(r.accounts[0].name)}</b> and mark Here`;
     else
       what = `Not registered. Register as <select data-i="${i}" class="input small" aria-label="OSG account for ${esc(r.name)}"><option value="">Choose the account…</option>${r.accounts
         .map((a) => `<option value="${esc(a.accountId)}"${r.choice === a.accountId ? ' selected' : ''}>${esc(a.name)}${a.email ? ` (${esc(a.email)})` : ''}</option>`)
         .join('')}</select>`;
-    const disabled = !r.attendee && r.accounts !== null && !r.accounts.length;
+    const disabled = !r.attendee && r.accounts !== null && !r.accounts.length && !staffAccount;
     return `<li class="prow merge-row">
       <label><input type="checkbox" data-i="${i}" ${r.include && !disabled ? 'checked' : ''} ${disabled ? 'disabled' : ''} />
       <span class="nm">${r.role === 'volunteer' ? icon('heart') : ''}${esc(r.name)}${r.role === 'volunteer' ? ' <span class="muted tiny">volunteer</span>' : ''}</span></label>
@@ -202,9 +209,9 @@ export function openMergeDialog({ event, locationName = '' }) {
       .filter(([, a, b]) => b && String(a || '') !== String(b))
       .map(([k, a, b]) => `<tr><th scope="row">${k}</th><td><s class="old">${esc(a || '—')}</s> <span aria-hidden="true">→</span> <b>${esc(b)}</b></td></tr>`)
       .join('');
-    const { mark, reg, stuck } = summary();
+    const { mark, reg, guests, stuck } = summary();
     const writable = snap.canWrite !== false && info?.canWrite !== false;
-    const nothing = !mark.length && !reg.length;
+    const nothing = !mark.length && !reg.length && !guests.length;
     shell(`
       <p><strong>${esc(n.name)}</strong><br><span class="muted tiny">${detail(n)}</span></p>
       ${
@@ -221,7 +228,7 @@ export function openMergeDialog({ event, locationName = '' }) {
         <button class="btn ghost" type="button" id="back">${icon('back')} Back</button>
         ${close}
         <button class="btn primary" type="button" id="merge" ${writable ? '' : 'disabled'}>${icon('swap')} ${target ? 'Move roll' : 'Merge'}${
-          nothing ? '' : ` · register ${reg.length}, mark ${mark.length + reg.length} Here`
+          nothing ? '' : ` · register ${reg.length + guests.length}, mark ${mark.length + reg.length + guests.length} Here`
         }</button>
       </div>`);
     dlg.querySelector('#back').onclick = () => ((step = 'search'), (picked = null), render());
@@ -244,9 +251,14 @@ export function openMergeDialog({ event, locationName = '' }) {
       for (const m of matchParticipants(roll, fresh.attendees)) {
         const r = chosen.get(m.personId);
         const acct = r.accounts?.find((a) => a.accountId === r.choice);
-        if (m.attendee || !acct) continue;
+        const noAccount = r.accounts && !r.accounts.length && staffAccount;
+        if (m.attendee || (!acct && !noAccount)) continue;
         try {
-          await createNeonRegistration(picked.neonEventId, acct);
+          if (acct) await createNeonRegistration(picked.neonEventId, acct);
+          else {
+            const [firstName, ...rest] = clean(r.name).split(' ');
+            await createNeonRegistration(picked.neonEventId, { registrantAccountId: staffAccount.accountId, firstName, lastName: rest.join(' ') });
+          }
           out.registered++;
         } catch (e) {
           out.failed.push({ name: r.name, reason: friendlyNeonReason(e.message) });

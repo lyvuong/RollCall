@@ -7,7 +7,7 @@
 //   GET  /api/neon/events/:id/sync              fresh event details + attendees (never cached), for sync checks
 //   PATCH /api/neon/events/:id                  {name?, date?, endDate?, startTime?, endTime?, location?} -> event
 //   PATCH /api/neon/registrations/:id/attendance {attendeeId, attended} -> sets markedAttended
-//   POST /api/neon/events/:id/registrations     {accountId, firstName, lastName, attended?} -> registers a walk-in
+//   POST /api/neon/events/:id/registrations     {accountId?, registrantAccountId?, firstName, lastName, attended?} -> registers a walk-in (no accountId = guest, filed under registrantAccountId)
 // Writes only run against a sandbox org, or when NEON_ALLOW_WRITES=1 (so production stays read-only until enabled).
 //   POST /api/neon/accounts/page                {page} -> one page (200) of every named account, for the weekly people sync
 // The API key lives in env.NEON_API_KEY and never reaches the browser.
@@ -290,20 +290,25 @@ async function handleNeonUncached(request, url, env) {
     const accountId = String(body?.accountId || '');
     const first = String(body?.firstName || '').trim();
     const last = String(body?.lastName || '').trim();
-    if (!/^\d{1,12}$/.test(accountId) || !first || first.length > 100 || last.length > 100) {
-      return json({ error: 'accountId and firstName required' }, 400);
+    // No accountId = a guest: someone with no OSG account, registered by name only.
+    const guest = !accountId;
+    // Neon requires a registrant account; a guest goes in as a name-only attendee under the staff member's own.
+    const registrant = guest ? String(body?.registrantAccountId || '') : accountId;
+    if (guest && !/^\d{1,12}$/.test(registrant)) return json({ error: 'registrantAccountId required for a guest' }, 400);
+    if ((!guest && !/^\d{1,12}$/.test(accountId)) || !first || first.length > 100 || last.length > 100) {
+      return json({ error: 'firstName and a valid accountId (or none, for a guest) required' }, 400);
     }
     const res = await neonFetch(env, '/eventRegistrations', {
       method: 'POST',
       body: JSON.stringify({
         eventId: regCreate[1],
-        registrantAccountId: accountId,
+        registrantAccountId: registrant,
         sendSystemEmail: false,
         registrationDateTime: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
         registrationAmount: 0,
         totalCharge: 0,
         ignoreCapacity: true, // someone standing there is not turned away by a capacity limit
-        tickets: [{ attendees: [{ accountId, firstName: first, lastName: last, markedAttended: body?.attended !== false }] }],
+        tickets: [{ attendees: [{ ...(guest ? {} : { accountId }), firstName: first, lastName: last, markedAttended: body?.attended !== false }] }],
       }),
     });
     await bumpEpoch();

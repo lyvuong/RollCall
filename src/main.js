@@ -257,17 +257,32 @@ function renderShell() {
   flagSandbox();
 }
 
-/** Show a badge (and tab-title prefix) when the Worker is wired to the Neon One sandbox. Silent on failure. */
+/**
+ * Show a badge (and tab-title prefix) when this deployment is wired to a sandbox. Both the Neon One org and the
+ * Firestore project sandboxed: a fully filled "Sandbox" badge. Only one of them: a half-filled badge naming it.
+ * Silent on failure.
+ */
 async function flagSandbox() {
+  const firestore = /sandbox/i.test(auth.app.options.projectId || '');
+  let neon = false;
   try {
-    const { sandbox } = await neonApi('info');
-    if (!sandbox) return;
-    $('#envBadge').hidden = false;
-    document.body.classList.add('sandbox');
-    if (!document.title.startsWith('[Sandbox]')) document.title = `[Sandbox] ${document.title}`;
+    neon = !!(await neonApi('info')).sandbox;
   } catch {
-    /* no Worker (plain vite dev) or not signed in: no badge */
+    /* no Worker (plain vite dev) or not signed in: Neon is not known to be sandboxed */
   }
+  if (!neon && !firestore) return;
+  const both = neon && firestore;
+  const badge = $('#envBadge');
+  const part = neon ? 'Neon' : 'Firestore';
+  badge.hidden = false;
+  badge.classList.toggle('half', !both);
+  badge.innerHTML = both ? 'Sandbox' : `<span class="on">${part}</span><span class="off">Sandbox</span>`;
+  badge.title = both
+    ? 'Connected to the Neon One and Firestore sandboxes, not live data'
+    : `Only ${part} is the sandbox; the ${neon ? 'Firestore database is live' : 'Neon One data is live'}`;
+  document.body.classList.add('sandbox');
+  const prefix = both ? '[Sandbox]' : `[${part} Sandbox]`;
+  if (!document.title.startsWith('[')) document.title = `${prefix} ${document.title}`;
 }
 window.addEventListener('themechange', themeButton);
 

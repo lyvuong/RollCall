@@ -84,6 +84,10 @@ small { font-size: .82rem; }
   text-transform: uppercase; background: #f59e0b; color: #1f1300;
 }
 .env-badge[hidden] { display: none; }
+/* Half sandbox: the sandboxed system is the filled half, the rest is outlined. */
+.env-badge.half { display: inline-flex; padding: 0; background: transparent; color: var(--text); box-shadow: inset 0 0 0 2px #f59e0b; overflow: hidden; }
+.env-badge.half span { padding: 4px 8px; }
+.env-badge.half .on { background: #f59e0b; color: #1f1300; }
 body.sandbox::before {
   content: ''; position: fixed; top: 0; left: 0; right: 0; height: 4px; background: #f59e0b; z-index: 100;
 }

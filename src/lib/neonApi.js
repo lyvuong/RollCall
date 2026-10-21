@@ -154,15 +154,21 @@ export async function pushNeonSync(neonEventId, plan, neonEvent) {
 
 const postJson = (body) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
+/** OSG Website accounts with this email: [{accountId, ...}] (the signed-in staff member, who files guest registrations). */
+export async function searchNeonAccountsByEmail(email) {
+  const { accounts } = await neonApi('accounts/search', postJson({ email }));
+  return accounts || [];
+}
+
 /** OSG Website accounts matching a person's name: [{accountId, firstName, lastName, name, email}]. */
 export async function searchNeonAccounts(name) {
   const { accounts } = await neonApi('accounts/search', postJson({ name }));
   return accounts || [];
 }
 
-/** Register an account for an event and mark them attended: resolves the new registration id. */
-export async function createNeonRegistration(neonEventId, { accountId, firstName, lastName }) {
-  const { registrationId } = await neonApi(`events/${encodeURIComponent(neonEventId)}/registrations`, postJson({ accountId, firstName, lastName, attended: true }));
+/** Register an account for an event and mark them attended: resolves the new registration id. Without an accountId they go in as a guest, by name, filed under registrantAccountId. */
+export async function createNeonRegistration(neonEventId, { accountId, registrantAccountId, firstName, lastName }) {
+  const { registrationId } = await neonApi(`events/${encodeURIComponent(neonEventId)}/registrations`, postJson({ ...(accountId ? { accountId } : { registrantAccountId }), firstName, lastName, attended: true }));
   return registrationId;
 }
 
