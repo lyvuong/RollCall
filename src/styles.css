@@ -381,7 +381,8 @@ textarea.input { resize: vertical; }
 .legend .osg { color: var(--sky-ink); font-weight: 600; }
 .legend .community { color: var(--mint-ink); font-weight: 600; }
 .legend .vol { color: var(--rose-ink); font-weight: 600; }
-.legend .vol .i { width: .85em; height: .85em; vertical-align: -1px; }
+.legend .staff { color: var(--peach-ink); font-weight: 600; }
+.legend .vol .i, .legend .staff .i { width: .85em; height: .85em; vertical-align: -1px; }
 .sep { color: var(--muted); font-weight: 700; margin-right: 2px; }
 @media (max-width: 520px) {
   #body .card { padding: 10px 12px; }
@@ -563,12 +564,21 @@ button.badge.neon-import:disabled { opacity: .6; cursor: wait; }
 /* Neon registrants: the chosen answer is filled in */
 .prow .btn.small.danger[aria-pressed="true"] { background: var(--rose-bg); color: var(--rose-ink); border-color: transparent; }
 .pill.reg { background: var(--mint-bg); color: var(--mint-ink); }
+.count { font-size: .85rem; font-weight: 600; color: var(--muted); }
+.info-btn { display: inline-flex; border: 0; background: none; padding: 2px; color: var(--muted); cursor: pointer; border-radius: 50%; }
+.info-btn .i { width: 18px; height: 18px; }
+.info-btn[aria-expanded="true"] { color: var(--primary-ink); }
+.tag.more { padding: 4px 12px; font-weight: 700; color: var(--muted); cursor: pointer; font-family: inherit; }
 .locdups { margin: 8px 0; }
 .locdups p { margin: 0 0 6px; }
 .locdup { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
+/* a long registered list scrolls inside its card instead of pushing the page down */
+.plist.scroll { max-height: min(50vh, 420px); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.regfind { margin-top: 10px; }
 .prow.cancelled .nm { opacity: .65; text-decoration: line-through; text-decoration-color: var(--rose-ink); }
 .prow.cancelled .nm .tiny { text-decoration: none; display: inline-block; }
-.selfrow { margin: 0 0 10px; }
+.sechead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; margin-bottom: 4px; }
+@media (max-width: 380px) { .sechead .selftxt { display: none; } }
 
 /* ---------- OSG Website (Neon) sync ---------- */
 .sync-slot { display: inline-flex; }

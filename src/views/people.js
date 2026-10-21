@@ -21,10 +21,13 @@ export function participantsView(root, ctx, eventId) {
   let whoIs = new Map(); // lower-case name -> 'staff' | 'volunteer', for members who said which they are
   const removed = new Set(); // staged removals, applied on Done
   const roleEdits = new Map(); // staged role changes (id -> role), applied on Done
+  const regEdits = new Map(); // staged Here / Missing choices for registered names (key -> status), applied on Done
+  let regQ = ''; // filter for a long registered list
+  const regStatus = (r) => regEdits.get(r.key) ?? (r.status || 'pending');
   /** Known members have a fixed role at every event: a volunteer is always a volunteer, staff always a participant. */
   const fixedRole = (name) => fixedRoleIn(whoIs, name);
   const effRole = (id, a) => fixedRole(a?.name) || roleEdits.get(id) || roleOf(a);
-  // "Include myself" stages the signed-in staff member as a volunteer (nothing is added automatically).
+  // The "Add me" button stages the signed-in staff member as a volunteer (nothing is added automatically).
   let peopleLoaded = false;
   let selfStaged = false;
   const selfName = (ctx?.name || '').trim();
@@ -95,7 +98,10 @@ export function participantsView(root, ctx, eventId) {
         <h2 id="regTitle"></h2>
         <p class="muted tiny">Registered on the OSG Website. Confirm who showed up.
           <button type="button" class="btn small ghost" id="regRefresh" title="Check the OSG Website for new registrations">${icon('swap')}<span class="wide">Refresh</span></button></p>
-        <ul id="regList" class="plist"></ul>
+        <div class="inputicon regfind" id="regFind" hidden>${icon('search')}
+          <input id="regQ" class="input" type="search" placeholder="Find a registered name…" aria-label="Find a registered name" autocomplete="off" />
+        </div>
+        <ul id="regList" class="plist scroll"></ul>
       </section>
       <section class="card">
         <div class="inputicon">${icon('search')}
@@ -104,9 +110,11 @@ export function participantsView(root, ctx, eventId) {
         <ul id="results" class="plist"></ul>
       </section>
       <section class="card">
-        <h2 id="listTitle">${icon('users')} Participants</h2>
-        ${selfName ? `<div class="selfrow"><button type="button" class="btn small" id="selfToggle" aria-pressed="false">${icon('heart')} <span>Include myself</span></button></div>` : ''}
-        <p class="legend tiny"><span class="osg">OSG</span><span class="community">Community</span><span class="vol">${icon('heart')} Volunteer</span></p>
+        <div class="sechead">
+          <h2 id="listTitle">${icon('users')} Participants</h2>
+          ${selfName ? `<button type="button" class="btn small" id="selfToggle" aria-pressed="false" aria-label="Add me to this event" title="Add me to this event">${icon('heart')}<span class="selftxt"> Add me</span></button>` : ''}
+        </div>
+        <p class="legend tiny"><span class="osg">OSG</span><span class="community">Community</span><span class="vol">${icon('heart')} Volunteer</span><span class="staff">${icon('shield')} Staff</span></p>
         <div id="current" class="inl"></div>
         <button type="button" id="done" class="btn primary block">Done</button>
       </section>
@@ -156,7 +164,7 @@ export function participantsView(root, ctx, eventId) {
         ? `<s class="old">${formatHours(saved)}</s> <b>${formatHours(next)}</b> hrs`
         : `${formatHours(saved)} hrs`;
     $('#sub', root).innerHTML = `${esc(formatDay(event.date))} · ${icon('clock')} ${formatHours(eventHours(event.startTime, event.endTime))} hrs · ${icon('heart')} ${volunteers} · ${icon('users')} ${participants} · ${icon('hourglass')} ${hoursHtml}`;
-    const pending = removed.size + roleEdits.size + (selfStaged ? 1 : 0);
+    const pending = removed.size + roleEdits.size + regEdits.size + (selfStaged ? 1 : 0);
     $('#done', root).textContent = pending ? `Save ${pending} change${pending === 1 ? '' : 's'} & done` : 'Done';
     $('#listTitle', root).innerHTML = `${icon('users')} Participants (${Object.keys(att).length})`;
 
@@ -167,18 +175,25 @@ export function participantsView(root, ctx, eventId) {
     $('#regCard', root).hidden = !regs.length;
     if (regs.length) {
       const live = regs.filter((r) => !r.cancelled);
-      const n = (st) => live.filter((r) => (r.status || 'pending') === st).length;
+      const n = (st) => live.filter((r) => regStatus(r) === st).length;
       const dropped = regs.length - live.length;
       $('#regTitle', root).innerHTML = `${icon('check')} Registered (${live.length}) <span class="muted tiny">${n('present')} here · ${n('missing')} missing · ${n('pending')} to confirm${dropped ? ` · ${dropped} cancelled` : ''}</span>`;
-      $('#regList', root).innerHTML = regs
+      const LONG = 12; // lists longer than this get a name filter
+      $('#regFind', root).hidden = regs.length <= LONG;
+      const term = regs.length > LONG ? regQ.trim().toLowerCase() : '';
+      const shown = term ? regs.filter((r) => r.name.toLowerCase().includes(term)) : regs;
+      const list = $('#regList', root);
+      const scrolled = list.scrollTop; // re-rendering must not jump the list back to the top
+      list.innerHTML = shown
         .map((r) => {
-          const st = r.status || 'pending';
+          const st = regStatus(r);
           const nm = esc(r.name);
           const btn = (kind, ic, label, cls) =>
             `<button type="button" class="btn small${st === kind ? ` ${cls}` : ' ghost'}" data-reg="${esc(r.key)}" data-st="${kind}" aria-pressed="${st === kind}" aria-label="${label}: ${nm}" title="${st === kind ? 'Tap to undo' : label}">${icon(ic)}<span class="wide">${label}</span></button>`;
           return `<li class="prow${r.cancelled ? ' cancelled' : ''}"><span class="nm">${nm}${r.cancelled ? ' <span class="muted tiny">cancelled on the OSG Website</span>' : ''}</span>${btn('present', 'check', 'Here', 'primary')}${btn('missing', 'x', 'Missing', 'danger')}</li>`;
         })
-        .join('');
+        .join('') || '<li class="muted tiny">No registered names match.</li>';
+      list.scrollTop = scrolled;
     }
 
     // current attendees
@@ -262,21 +277,11 @@ export function participantsView(root, ctx, eventId) {
     if (t.dataset.reg) {
       const r = event.registrants?.[t.dataset.reg];
       if (!r) return;
-      const next = (r.status || 'pending') === t.dataset.st ? 'pending' : t.dataset.st;
-      let person = null;
-      if (next === 'present') {
-        const same = (x) => x.name.toLowerCase() === r.name.toLowerCase();
-        const there = Object.entries(event.attendees || {}).find(([, a]) => same(a));
-        const known = people.find(same);
-        if (there) person = { id: there[0], name: there[1].name, alreadyThere: true };
-        else if (known) person = known;
-        else {
-          const created = addPerson(r.name, 'community');
-          created.done.catch(() => toast('Could not save person.'));
-          person = created.person;
-        }
-      }
-      markRegistrant(eventId, { key: t.dataset.reg, ...r }, next, person).catch(fail);
+      // Staged only: nothing is saved (or added to the roll) until Done.
+      const next = regStatus({ key: t.dataset.reg, ...r }) === t.dataset.st ? 'pending' : t.dataset.st;
+      if (next === (r.status || 'pending')) regEdits.delete(t.dataset.reg);
+      else regEdits.set(t.dataset.reg, next);
+      render();
       return;
     }
     if (t.dataset.del) {
@@ -303,8 +308,27 @@ export function participantsView(root, ctx, eventId) {
         }
         jobs.push(setAttendance(eventId, me, true, roleEdits.get(selfId()) || selfRole));
       }
+      for (const [key, next] of regEdits) {
+        const r = event.registrants?.[key];
+        if (!r) continue;
+        let person = null;
+        if (next === 'present') {
+          const same = (x) => x.name.toLowerCase() === r.name.toLowerCase();
+          const there = Object.entries(event.attendees || {}).find(([, a]) => same(a));
+          const known = people.find(same);
+          if (there) person = { id: there[0], name: there[1].name, alreadyThere: true };
+          else if (known) person = known;
+          else {
+            const created = addPerson(r.name, 'community');
+            created.done.catch(() => toast('Could not save person.'));
+            person = created.person;
+          }
+        }
+        jobs.push(markRegistrant(eventId, { key, ...r }, next, person));
+      }
       removed.clear();
       roleEdits.clear();
+      regEdits.clear();
       Promise.all(jobs).catch(fail);
       location.hash = '#/';
     } else if (t.dataset.role) {
@@ -355,6 +379,11 @@ export function participantsView(root, ctx, eventId) {
       $('#q', root).value = '';
     }
   });
+
+  $('#regQ', root).oninput = (ev) => {
+    regQ = ev.target.value;
+    render();
+  };
 
   $('#q', root).oninput = (ev) => {
     q = ev.target.value;
