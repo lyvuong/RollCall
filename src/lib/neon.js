@@ -1,5 +1,5 @@
 import { parseDate, parseTime } from './importer.js';
-import { toMinutes } from './time.js';
+import { toMinutes, addDays } from './time.js';
 
 const lower = (s) => String(s || '').trim().toLowerCase();
 const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
@@ -42,6 +42,29 @@ export function registrantMap(list, current) {
 }
 
 /**
+ * What to write to an event's `registrants` after fetching its current Neon list: new people (name, accountId,
+ * status 'pending'), `{cancelled:true}` for stored people Neon no longer lists (cancelled, refunded, swapped out),
+ * and `{cancelled:false}` for ones that came back. Confirmations (status) are never touched. Empty when `list` is null.
+ */
+export function registrantUpdates(list, current) {
+  if (!list) return {};
+  const out = registrantMap(list, current);
+  const live = new Set(list.map((r) => String(r.attendeeId || '')));
+  for (const [key, r] of Object.entries(current || {})) {
+    if (!live.has(key) && !r.cancelled) out[key] = { cancelled: true };
+    else if (live.has(key) && r.cancelled) out[key] = { cancelled: false };
+  }
+  return out;
+}
+
+const addedOf = (regs) => Object.values(regs).filter((r) => r.name).length;
+const droppedOf = (regs) => Object.values(regs).filter((r) => r.cancelled === true).length;
+const summary = (regs) =>
+  [addedOf(regs) && `${addedOf(regs)} registered name${addedOf(regs) === 1 ? '' : 's'} added`, droppedOf(regs) && `${droppedOf(regs)} cancelled`]
+    .filter(Boolean)
+    .join(' · ');
+
+/**
  * Build a write plan from events returned by /api/neon/events.
  * neonEvents = [{neonEventId, name, date, startTime, endTime, location?}]
  * existing   = { events:[{id, name, date, startTime, neonEventId?}], locations:[{id, name}] }
@@ -75,10 +98,18 @@ export function planNeonEvents(neonEvents, existing, newId, registrants = {}) {
   const ops = [];
   const stats = { created: 0, linked: 0, skipped: 0, errors: 0, newLocations: 0, registrants: 0 };
   const newRegistrants = (id, current) => {
-    const out = registrantMap(registrants[id], current);
-    stats.registrants += Object.keys(out).length;
+    const out = registrantUpdates(registrants[id], current);
+    stats.registrants += addedOf(out);
     return out;
   };
+  // Remember Neon's counts whenever its attendees were fetched, so staleRegistrantEvents can spot later changes.
+  const countOf = (n, id) =>
+    registrants[id]
+      ? {
+          ...(Number.isInteger(n.registered) ? { neonCount: n.registered } : {}),
+          ...(Number.isInteger(n.registrations) ? { neonRegs: n.registrations } : {}),
+        }
+      : {};
   const row = (status, message, label) => {
     rows.push({ status, message, label });
     if (status === 'ok') return;
@@ -99,19 +130,23 @@ export function planNeonEvents(neonEvents, existing, newId, registrants = {}) {
     const { start, end } = neonSlot(n);
 
     if (byNeon.has(id)) {
-      const regs = newRegistrants(id, byNeon.get(id).registrants);
-      const added = Object.keys(regs).length;
-      if (added) {
-        ops.push({ col: 'events', id: byNeon.get(id).id, data: { registrants: regs }, merge: true });
-        row('ok', `already imported · ${added} registered name${added === 1 ? '' : 's'} added`, label);
-      } else row('skip', 'Already imported', label);
+      const cur = byNeon.get(id);
+      const regs = newRegistrants(id, cur.registrants);
+      const count = countOf(n, id);
+      if (Object.keys(regs).length) {
+        ops.push({ col: 'events', id: cur.id, data: { registrants: regs, ...count }, merge: true });
+        row('ok', `already imported · ${summary(regs)}`, label);
+      } else {
+        if (Object.entries(count).some(([k, v]) => cur[k] !== v)) ops.push({ col: 'events', id: cur.id, data: count, merge: true });
+        row('skip', 'Already imported', label);
+      }
       continue;
     }
     const match = byKey.get(`${lower(name)}|${date}|${start}`);
     if (match) {
       const regs = newRegistrants(id, match.registrants);
-      const added = Object.keys(regs).length;
-      ops.push({ col: 'events', id: match.id, data: { neonEventId: id, ...(added ? { registrants: regs } : {}) }, merge: true });
+      const added = addedOf(regs);
+      ops.push({ col: 'events', id: match.id, data: { neonEventId: id, ...(Object.keys(regs).length ? { registrants: regs } : {}), ...countOf(n, id) }, merge: true });
       stats.linked++;
       row('ok', `linked to existing event${added ? ` · ${added} registered name${added === 1 ? '' : 's'}` : ''}`, label);
       continue;
@@ -122,13 +157,36 @@ export function planNeonEvents(neonEvents, existing, newId, registrants = {}) {
     ops.push({
       col: 'events',
       id: newId('events'),
-      data: { name, description: '', date, startTime: start, endTime: end, format, locationId: format === 'virtual' ? null : locationFor(n.location), attendees: {}, neonEventId: id, ...(added ? { registrants: regs } : {}) },
+      data: { name, description: '', date, startTime: start, endTime: end, format, locationId: format === 'virtual' ? null : locationFor(n.location), attendees: {}, neonEventId: id, ...(added ? { registrants: regs } : {}), ...countOf(n, id) },
     });
     stats.created++;
     row('ok', `new event${added ? ` · ${added} registered name${added === 1 ? '' : 's'}` : ''}`, label);
   }
   return { rows, ops, stats };
 }
+
+/**
+ * Imported events from today on whose registrants should be fetched again:
+ *  - today's and tomorrow's events always (a cancel plus a new sign-up leaves Neon's counts unchanged), or
+ *  - later events whose Neon attendee or registration count differs from the one stored when the names were last
+ *    fetched (or that were never counted but now have registrations).
+ * Returns the Neon rows to pass to planNeonEvents. neonEvents = rows with `registered`/`registrations`; events = local.
+ */
+export function staleRegistrantEvents(neonEvents, events, today) {
+  const local = new Map(events.filter((e) => e.neonEventId).map((e) => [String(e.neonEventId), e]));
+  const soon = addDays(today, 1);
+  return (neonEvents || []).filter((n) => {
+    const e = local.get(String(n.neonEventId));
+    if (!e || e.date < today) return false;
+    if (e.date <= soon) return true;
+    if (!Number.isInteger(n.registered)) return false;
+    if (e.neonCount === undefined) return n.registered > 0;
+    return e.neonCount !== n.registered || (Number.isInteger(n.registrations) && e.neonRegs !== n.registrations);
+  });
+}
+
+/** Today's or tomorrow's event: its sign-ups can still change faster than Neon's counts show. */
+export const isImminent = (date, today) => date >= today && date <= addDays(today, 1);
 
 /**
  * Neon events that have no RollCall counterpart yet, sorted for display.

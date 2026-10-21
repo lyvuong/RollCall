@@ -58,18 +58,19 @@ const CANCELLED = /cancel|fail|refund|declin/i;
  * Registered names for one Neon event: [{attendeeId, accountId, name}]. Cancelled or failed registrations are
  * left out. Throws when Neon is unreachable.
  */
-export async function fetchNeonRegistrants(neonEventId) {
+export async function fetchNeonRegistrants(neonEventId, { force = false } = {}) {
   const memo = REG_MEMO.get(String(neonEventId));
-  if (memo && Date.now() - memo.at < FRESH_MS) return memo.list;
-  const list = await loadRegistrants(neonEventId);
+  if (!force && memo && Date.now() - memo.at < FRESH_MS) return memo.list;
+  const list = await loadRegistrants(neonEventId, force);
   REG_MEMO.set(String(neonEventId), { list, at: Date.now() });
   return list;
 }
 
 const REG_MEMO = new Map(); // neonEventId -> {list, at}, for this page session
 
-async function loadRegistrants(neonEventId) {
-  const { attendees } = await neonApi(`events/${encodeURIComponent(neonEventId)}/attendees`);
+async function loadRegistrants(neonEventId, force = false) {
+  // A throwaway query string makes the worker skip its shared 5-minute cache for this one call.
+  const { attendees } = await neonApi(`events/${encodeURIComponent(neonEventId)}/attendees${force ? `?fresh=${Date.now()}` : ''}`);
   const seen = new Set();
   return (attendees || []).filter((a) => {
     if (!a.name || !a.attendeeId || seen.has(a.attendeeId) || CANCELLED.test(a.status || '')) return false;
@@ -163,4 +164,17 @@ export async function searchNeonAccounts(name) {
 export async function createNeonRegistration(neonEventId, { accountId, firstName, lastName }) {
   const { registrationId } = await neonApi(`events/${encodeURIComponent(neonEventId)}/registrations`, postJson({ accountId, firstName, lastName, attended: true }));
   return registrationId;
+}
+
+/** Every named Neon account, one worker call per 200. onPage(done, total) reports progress. */
+export async function fetchAllNeonAccounts(onPage) {
+  const out = [];
+  let total = 1;
+  for (let page = 0; page < total; page++) {
+    const r = await neonApi('accounts/page', { method: 'POST', body: JSON.stringify({ page }) });
+    out.push(...r.accounts);
+    total = r.totalPages;
+    onPage?.(page + 1, total);
+  }
+  return out;
 }

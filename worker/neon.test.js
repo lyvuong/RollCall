@@ -120,6 +120,16 @@ describe('event times and location', () => {
     );
     const { events } = await (await call('/api/neon/events?from=2026-10-01&to=2026-10-31')).json();
     expect(events[0]).toMatchObject({ startTime: '17:30', endTime: '19:00', location: 'Lost Dog Cafe' });
+    expect(events[0].registered).toBeNull();
+  });
+
+  it('passes Neon\'s attendee count through as a number', async () => {
+    mockFetch(() =>
+      ok({ pagination: { totalPages: 1 }, searchResults: [{ 'Event ID': '5', 'Event Name': 'A', 'Event Start Date': '2026-10-14', 'Event Registration Attendee Count': '21', Registrants: '10' }] }),
+    );
+    const { events } = await (await call('/api/neon/events?from=2026-10-01&to=2026-10-31')).json();
+    expect(events[0]).toMatchObject({ registered: 21, registrations: 10 });
+    expect(JSON.parse(neonCalls[0].init.body).outputFields).toEqual(expect.arrayContaining(['Event Registration Attendee Count', 'Registrants']));
   });
 });
 
@@ -173,6 +183,30 @@ describe('registrations and accounts', () => {
     expect((await res.json()).accounts.map((a) => a.accountId)).toEqual(['8']);
     const second = JSON.parse(neonCalls[1].init.body);
     expect(second.searchFields.map((f) => f.value)).toEqual(['Mary', 'Smith']);
+  });
+
+  it('lists one page of named accounts for the people sync', async () => {
+    mockFetch(() =>
+      ok({
+        pagination: { totalPages: 21 },
+        searchResults: [
+          { 'Account ID': 7, 'First Name': 'Ada', 'Last Name': 'Lovelace', 'Email 1': 'a@x.org' },
+          { 'Account ID': 8, 'First Name': null, 'Last Name': null, 'Email 1': null },
+        ],
+      }),
+    );
+    const res = await call('/api/neon/accounts/page', { method: 'POST', body: JSON.stringify({ page: 2 }) });
+    expect(await res.json()).toEqual({
+      accounts: [{ accountId: '7', firstName: 'Ada', lastName: 'Lovelace', email: 'a@x.org' }],
+      page: 2,
+      totalPages: 21,
+    });
+    expect(JSON.parse(neonCalls[0].init.body).pagination).toEqual({ currentPage: 2, pageSize: 200 });
+  });
+
+  it('rejects a bad page number', async () => {
+    const res = await call('/api/neon/accounts/page', { method: 'POST', body: JSON.stringify({ page: -1 }) });
+    expect(res.status).toBe(400);
   });
 
   it('requires a name or email', async () => {

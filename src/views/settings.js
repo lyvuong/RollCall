@@ -5,6 +5,7 @@ import {
   addLocation,
   renameLocation,
   deleteLocation,
+  mergeLocations,
   watchPeople,
   updatePerson,
   deletePerson,
@@ -17,11 +18,21 @@ import {
   loadExisting,
   markNotSame,
   clearNotSame,
+  getNeonPeople,
+  applyPeopleSync,
+  watchPeopleSync,
+  setMemberRole,
+  watchRoster,
+  syncRoster,
+  ROLES,
 } from '../data.js';
 import { esc, $, toast, randomCode } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { ymd, addDays, personKind } from '../lib/time.js';
 import { getPref, setPref } from '../lib/theme.js';
+import { planPeopleSync, daysSince } from '../lib/peopleSync.js';
+import { fetchAllNeonAccounts } from '../lib/neonApi.js';
+import { findDuplicateLocations, matchLocation } from '../lib/locations.js';
 import { findDuplicateGroups, attendanceStats, inactivePeople, ignoredPairs } from '../lib/people.js';
 
 const fail = (msg) => () => toast(msg);
@@ -48,6 +59,12 @@ export function settingsView(root, ctx) {
     <section class="card">
       <h2>${icon('pin')} Locations</h2>
       <div id="locs" class="tags"></div>
+      <div id="locDups" class="locdups" aria-live="polite"></div>
+      <form id="locMergeBar" class="add" hidden>
+        <select id="locKeep" class="input" aria-label="Location to keep"></select>
+        <button class="btn" type="submit">${icon('swap')} <span id="locMergeLbl"></span></button>
+        <button class="btn ghost" type="button" id="locMergeClear" aria-label="Clear selection" title="Clear selection">${icon('x')}</button>
+      </form>
       <form id="locForm" class="add">
         <input id="locName" class="input" placeholder="New location" maxlength="80" required aria-label="New location" />
         <button class="btn" type="submit">${icon('plus')} Add</button>
@@ -94,13 +111,25 @@ export function settingsView(root, ctx) {
       <h2>${icon('download')} OSG Website</h2>
       <p class="muted">Bring events from the OSG Website into RollCall.</p>
       <a class="btn" href="#/neon">${icon('download')} Import events from the OSG Website</a>
+      <p class="muted" id="psStatus">Checking the last people sync…</p>
+      <button class="btn" id="psSync">${icon('userPlus')} Update people from the OSG Website</button>
     </section>
     <section class="card">
-      <h2>${icon('shield')} Staff</h2>
-      <div id="mems" class="tags"></div>
+      <h2>${icon('shield')} People who sign in</h2>
+      <div id="mems"></div>
     </section>`
         : ''
     }
+
+    <section class="card">
+      <h2>${icon('user')} My role</h2>
+      <p class="muted">Staff can take part in events but are not volunteers, so their time never counts toward volunteer hours. Volunteers can do both.</p>
+      <div class="seg" id="roleSeg" role="group" aria-label="My role">
+        <button type="button" data-r="staff">${icon('shield')} Staff</button>
+        <button type="button" data-r="volunteer">${icon('heart')} Volunteer</button>
+      </div>
+      <p class="muted" id="roleNote"></p>
+    </section>
 
     <section class="card">
       <h2>${icon('user')} Account</h2>
@@ -119,21 +148,76 @@ export function settingsView(root, ctx) {
 
   /* ----- locations ----- */
 
+  const locPicked = new Set(); // location ids selected for merging
+
+  const renderLocMerge = () => {
+    for (const id of locPicked) if (!locations.some((l) => l.id === id)) locPicked.delete(id);
+    const sel = locations.filter((l) => locPicked.has(l.id));
+    $('#locMergeBar', root).hidden = sel.length === 0;
+    if (!sel.length) return;
+    const keepEl = $('#locKeep', root);
+    const prev = keepEl.value;
+    keepEl.innerHTML = sel.map((l) => `<option value="${esc(l.id)}">Keep: ${esc(l.name)}</option>`).join('');
+    keepEl.value = sel.some((l) => l.id === prev) ? prev : [...sel].sort((a, b) => b.name.length - a.name.length)[0].id;
+    $('#locMergeLbl', root).innerHTML = sel.length > 1 ? `Merge ${sel.length} <span class="wide">into one</span>` : 'Select another to merge';
+    $('#locMergeBar', root).querySelector('button[type=submit]').disabled = sel.length < 2;
+  };
+
   const renderLocs = () => {
+    renderLocMerge();
     $('#locs', root).innerHTML = locations.length
       ? locations
-          .map(
-            (l) => `<span class="tag" data-id="${esc(l.id)}">${icon('pin')}<button type="button" class="tname" data-act="rename" title="Tap to rename">${esc(l.name)}</button><button type="button" class="mb del" data-act="del" aria-label="Delete ${esc(l.name)}" title="Delete">${icon('x')}</button></span>`,
-          )
+          .map((l) => {
+            const on = locPicked.has(l.id);
+            return `<span class="tag" data-id="${esc(l.id)}"><button type="button" class="mb sel${on ? ' on' : ''}" data-act="pick" aria-pressed="${on}" aria-label="Select ${esc(l.name)} to merge" title="Select to merge">${icon('check')}</button><button type="button" class="tname" data-act="rename" title="Tap to rename">${esc(l.name)}</button><button type="button" class="mb del" data-act="del" aria-label="Delete ${esc(l.name)}" title="Delete">${icon('x')}</button></span>`;
+          })
           .join('')
       : '<span class="muted">No locations yet.</span>';
+    const groups = findDuplicateLocations(locations);
+    $('#locDups', root).innerHTML = groups.length
+      ? `<p class="muted">Possible duplicates:</p>` +
+        groups
+          .map(
+            (g, i) => `<div class="locdup"><span>${g.map((l) => esc(l.name)).join(' <span class="muted">·</span> ')}</span> <button type="button" class="btn small" data-dup="${i}">${icon('swap')} Select to merge</button></div>`,
+          )
+          .join('')
+      : '';
+  };
+  $('#locDups', root).onclick = (ev) => {
+    const b = ev.target.closest('[data-dup]');
+    if (!b) return;
+    findDuplicateLocations(locations)[Number(b.dataset.dup)]?.forEach((l) => locPicked.add(l.id));
+    renderLocs();
+    toast('Selected. Choose the name to keep, then merge.');
+  };
+  $('#locMergeClear', root).onclick = () => (locPicked.clear(), renderLocs());
+  $('#locMergeBar', root).onsubmit = async (ev) => {
+    ev.preventDefault();
+    const keep = locations.find((l) => l.id === $('#locKeep', root).value);
+    const ids = [...locPicked];
+    if (!keep || ids.length < 2) return;
+    const others = locations.filter((l) => ids.includes(l.id) && l.id !== keep.id);
+    if (!confirm(`Merge ${others.map((l) => `"${l.name}"`).join(', ')} into "${keep.name}"? Their events move to "${keep.name}" and the other names are deleted.`)) return;
+    const btn = ev.target.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      const n = await mergeLocations(keep.id, ids);
+      locPicked.clear();
+      toast(`Merged into ${keep.name} · ${n} event${n === 1 ? '' : 's'} updated`);
+    } catch {
+      toast('Could not merge.');
+    }
+    renderLocs();
   };
   $('#locs', root).onclick = (ev) => {
     const btn = ev.target.closest('button');
     const li = ev.target.closest('[data-id]');
     if (!btn || !li) return;
     const loc = locations.find((l) => l.id === li.dataset.id);
-    if (btn.dataset.act === 'rename') {
+    if (btn.dataset.act === 'pick') {
+      if (!locPicked.delete(loc.id)) locPicked.add(loc.id);
+      renderLocs();
+    } else if (btn.dataset.act === 'rename') {
       const name = prompt('Rename location', loc.name);
       if (name && name.trim()) renameLocation(loc.id, name).catch(fail('Could not rename.'));
     } else if (confirm(`Delete "${loc.name}"? Events keep their old reference but it will show no name.`)) {
@@ -144,6 +228,8 @@ export function settingsView(root, ctx) {
     ev.preventDefault();
     const input = $('#locName', root);
     if (!input.value.trim()) return;
+    const dup = matchLocation(locations, input.value);
+    if (dup) return toast(`"${dup.name}" is already in the list.`);
     addLocation(input.value).catch(fail('Could not add.'));
     input.value = '';
   };
@@ -426,31 +512,105 @@ export function settingsView(root, ctx) {
       toast(`Code ${code} created`);
     };
 
+    // Roles chosen before the roster existed: record them once so participants lists can show them.
+    let roster;
+    const backfillRoster = () => {
+      if (!roster) return;
+      const have = new Map(roster.map((r) => [r.id, r]));
+      for (const m of members) {
+        const r = have.get(m.id);
+        if (m.role && m.name && (!r || r.role !== m.role || r.name !== m.name)) syncRoster(m.id, m.name, m.role).catch(() => {});
+      }
+    };
+    const memberTag = (m) =>
+      `<span class="tag" data-id="${esc(m.id)}">${icon(m.role === 'staff' ? 'shield' : m.role === 'volunteer' ? 'heart' : 'user')}<span class="tname" title="${esc(m.email || '')}">${esc(m.name || m.email || m.id)}</span>${
+        m.id === ctx.user.uid
+          ? '<small class="muted">you</small>'
+          : `<button type="button" class="mb del" data-act="del" aria-label="Revoke access" title="Revoke access">${icon('x')}</button>`
+      }${['staff', 'volunteer']
+        .filter((r) => r !== m.role)
+        .map((r) => `<button type="button" class="mb" data-act="role" data-r="${r}" aria-label="Make ${ROLES[r]}" title="Make ${ROLES[r]}">${icon('swap')}</button>`)
+        .join('')}</span>`;
     const renderMembers = () => {
+      const group = (title, rows) =>
+        rows.length ? `<h3>${title} (${rows.length})</h3><div class="tags">${rows.map(memberTag).join('')}</div>` : '';
       $('#mems', root).innerHTML = members.length
-        ? members
-            .map(
-              (m) => `<span class="tag" data-id="${esc(m.id)}">${icon('user')}<span class="tname" title="${esc(m.email || '')}">${esc(m.name || m.email || m.id)}</span>${
-                m.id === ctx.user.uid
-                  ? '<small class="muted">you</small>'
-                  : `<button type="button" class="mb del" data-act="del" aria-label="Revoke access" title="Revoke access">${icon('x')}</button>`
-              }</span>`,
-            )
-            .join('')
-        : '<span class="muted">No staff.</span>';
+        ? group('Staff', members.filter((m) => m.role === 'staff')) +
+          group('Volunteers', members.filter((m) => m.role === 'volunteer')) +
+          group('Not chosen yet', members.filter((m) => m.role !== 'staff' && m.role !== 'volunteer'))
+        : '<span class="muted">Nobody yet.</span>';
     };
     $('#mems', root).onclick = (ev) => {
       const btn = ev.target.closest('button');
       const li = ev.target.closest('[data-id]');
       if (!btn || !li) return;
+      if (btn.dataset.act === 'role') {
+        setMemberRole(li.dataset.id, btn.dataset.r, members.find((m) => m.id === li.dataset.id)?.name || 'Unnamed').catch(fail('Could not change the role.'));
+        return;
+      }
       if (confirm("Revoke this person's access?")) removeMember(li.dataset.id).catch(fail('Could not revoke.'));
     };
 
+    /* ----- people list from the OSG Website: weekly copy for name search ----- */
+    const WEEK_DAYS = 7;
+    let lastSync; // undefined = loading, null = never
+    const renderSync = () => {
+      const days = lastSync ? daysSince(lastSync.at?.toMillis?.()) : null;
+      const stale = days === null || days >= WEEK_DAYS;
+      $('#psStatus', root).innerHTML =
+        lastSync === undefined
+          ? 'Checking the last people sync…'
+          : days === null
+            ? 'The people list has not been copied from the OSG Website yet. Name search there needs it.'
+            : `${stale ? '<strong>Due:</strong> ' : ''}People list last updated ${days === 0 ? 'today' : `${days} day${days === 1 ? '' : 's'} ago`} (${lastSync.added} added, ${lastSync.deactivated} no longer registered).`;
+    };
+    let syncing = false;
+    $('#psSync', root).onclick = async () => {
+      if (syncing) return;
+      syncing = true;
+      const btn = $('#psSync', root);
+      btn.disabled = true;
+      try {
+        const accounts = await fetchAllNeonAccounts((done, total) => ($('#psStatus', root).textContent = `Reading the OSG Website… ${done} of ${total}`));
+        $('#psStatus', root).textContent = 'Comparing with the saved list…';
+        const plan = planPeopleSync(accounts, await getNeonPeople());
+        if (plan.suspicious) {
+          toast(`Stopped: ${plan.deactivate.length} people would be removed. Nothing changed.`);
+        } else {
+          await applyPeopleSync(plan);
+          toast(`People updated · ${plan.add.length} added, ${plan.update.length} changed, ${plan.deactivate.length} removed`);
+        }
+      } catch (e) {
+        toast(e?.status === 429 ? 'The OSG Website is busy. Try again in a minute.' : 'Could not update people.');
+      } finally {
+        syncing = false;
+        btn.disabled = false;
+        renderSync();
+      }
+    };
+
     unsubs.push(
+      watchPeopleSync((s) => ((lastSync = s), renderSync())),
       watchInvites((rows) => ((invites = rows), renderInvites())),
-      watchMembers((rows) => ((members = rows), renderMembers())),
+      watchMembers((rows) => ((members = rows), renderMembers(), backfillRoster())),
+      watchRoster((rows) => ((roster = rows), backfillRoster())),
     );
   }
+
+  /* ----- my role: staff or volunteer ----- */
+  const renderRole = () => {
+    for (const b of $('#roleSeg', root).querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.r === ctx.role));
+    $('#roleNote', root).textContent = ctx.role ? `You are signed in as ${ROLES[ctx.role]}.` : 'Choose one so events count your time correctly.';
+  };
+  $('#roleSeg', root).onclick = (ev) => {
+    const r = ev.target.closest('button')?.dataset.r;
+    if (!r || r === ctx.role) return;
+    setMemberRole(ctx.user.uid, r, ctx.name).then(
+      () => ((ctx.role = r), renderRole(), toast(`Saved: ${ROLES[r]}`)),
+      fail('Could not save your role.'),
+    );
+  };
+  renderRole();
 
   unsubs.push(
     watchLocations((rows) => ((locations = rows), renderLocs())),

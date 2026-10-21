@@ -9,6 +9,7 @@
 //   PATCH /api/neon/registrations/:id/attendance {attendeeId, attended} -> sets markedAttended
 //   POST /api/neon/events/:id/registrations     {accountId, firstName, lastName, attended?} -> registers a walk-in
 // Writes only run against a sandbox org, or when NEON_ALLOW_WRITES=1 (so production stays read-only until enabled).
+//   POST /api/neon/accounts/page                {page} -> one page (200) of every named account, for the weekly people sync
 // The API key lives in env.NEON_API_KEY and never reaches the browser.
 // Event field names and pagination (currentPage) were verified against a live org; account search
 // field names ("First Name", "Last Name", "Email", "Account ID", "Email 1") still need checking.
@@ -26,6 +27,8 @@ export const EVENT_FIELDS = {
   startTime: 'Event Start Time',
   endTime: 'Event End Time',
   location: 'Event Location Name',
+  registered: 'Event Registration Attendee Count',
+  registrations: 'Registrants', // number of registrations (one registration can cover several attendees)
 };
 
 const json = (body, status = 200) =>
@@ -93,6 +96,8 @@ async function listAll(env, path, key) {
 // Neon sends times as "17:30:00" (sometimes "19:00:01"); the app uses "HH:MM".
 const hm = (t) => String(t || '').slice(0, 5);
 
+const count = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+
 const normalizeEvent = (r) => ({
   neonEventId: String(r[EVENT_FIELDS.id]),
   name: r[EVENT_FIELDS.name] || '',
@@ -101,6 +106,9 @@ const normalizeEvent = (r) => ({
   startTime: hm(r[EVENT_FIELDS.startTime]),
   endTime: hm(r[EVENT_FIELDS.endTime]),
   location: String(r[EVENT_FIELDS.location] || '').trim(),
+  // Neon's running counts; they let the app notice sign-ups without fetching every event's attendees.
+  registered: count(r[EVENT_FIELDS.registered]),
+  registrations: count(r[EVENT_FIELDS.registrations]),
 });
 
 const normalizeAttendee = (a) => ({
@@ -354,6 +362,34 @@ async function handleNeonUncached(request, url, env) {
       if (!accounts.length && parts.length > 2) accounts = await find(byName(parts[0], parts[parts.length - 1]));
     }
     return json({ accounts });
+  }
+
+  if (pathname === '/api/neon/accounts/page' && method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: 'invalid JSON' }, 400);
+    }
+    const page = Number(body?.page);
+    if (!Number.isInteger(page) || page < 0 || page > 1000) return json({ error: 'page must be a whole number' }, 400);
+    const data = await neonFetch(env, '/accounts/search', {
+      method: 'POST',
+      body: JSON.stringify({
+        searchFields: [{ field: 'Account ID', operator: 'GREATER_THAN', value: '0' }],
+        outputFields: ['Account ID', 'First Name', 'Last Name', 'Email 1'],
+        pagination: { currentPage: page, pageSize: PAGE_SIZE },
+      }),
+    });
+    const accounts = (data?.searchResults || [])
+      .map((r) => ({
+        accountId: String(r['Account ID']),
+        firstName: String(r['First Name'] || '').trim(),
+        lastName: String(r['Last Name'] || '').trim(),
+        email: r['Email 1'] || '',
+      }))
+      .filter((a) => a.firstName || a.lastName);
+    return json({ accounts, page, totalPages: data?.pagination?.totalPages ?? 1 });
   }
 
   return json({ error: 'not found' }, 404);

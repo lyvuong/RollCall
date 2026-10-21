@@ -1,10 +1,11 @@
-import { watchEvents, watchLocations, watchAllPhotos, loadExisting, newId, commitOps } from '../data.js';
+import { watchEvents, watchLocations, watchAllPhotos, watchRoster, loadExisting, newId, commitOps } from '../data.js';
 import { fetchNeonEvents, readNeonCache, fetchRegistrantsFor } from '../lib/neonApi.js';
-import { neonOnlyEvents, planNeonEvents, neonSyncPlan } from '../lib/neon.js';
+import { neonOnlyEvents, planNeonEvents, neonSyncPlan, staleRegistrantEvents } from '../lib/neon.js';
 import { similarNeonEvents } from '../lib/neonMerge.js';
 import { openMergeDialog } from './neonMerge.js';
 import { photoUrl } from '../lib/photos.js';
 import { esc, $, toast } from '../lib/dom.js';
+import { rosterMap, fixedRole } from '../lib/roster.js';
 import { icon } from '../lib/icons.js';
 import {
   ymd,
@@ -43,8 +44,10 @@ export const PRESETS = [
 ];
 
 // Remembered across navigation within the session.
+const refreshing = new Set(); // registrant refreshes already tried this session (see refreshRegistrants)
 let range = null;
 const open = new Set(); // expanded event cards
+const dayToggled = new Map(); // date -> open?, for day groups the user opened or closed (others use the default)
 let filterOpen = false; // date-range card expanded?
 let fixOnly = false; // only events that still need volunteers identified, across all dates
 const ALL = { from: '2000-01-01', to: '2099-12-31' };
@@ -56,6 +59,7 @@ export function homeView(root, _ctx) {
   let locations = {};
   let photosByEvent = new Map(); // eventId -> photo metadata[]
   let unsubEvents = () => {};
+  let roster = new Map(); // lower-case name -> 'staff' | 'volunteer'
   let neonRaw = []; // last Neon result for the visible range (cached copy first, then fresh)
   let neonSeq = 0; // ignores answers for a range the user has already moved away from
   const checkinDiff = new Map(); // eventId -> {sig, n}: confirmed check-ins that differ from the OSG Website
@@ -122,6 +126,13 @@ export function homeView(root, _ctx) {
     }).join('');
   }
 
+  /** A day's group is open unless it is yesterday or tomorrow (or the user toggled it). "Needs volunteers" shows everything. */
+  function dayIsOpen(date, today) {
+    if (fixOnly) return true;
+    if (dayToggled.has(date)) return dayToggled.get(date);
+    return date !== addDays(today, -1) && date !== addDays(today, 1);
+  }
+
   function renderList() {
     const list = $('#list', root);
     const todo = events.filter(needsVolunteers).length;
@@ -155,11 +166,14 @@ export function homeView(root, _ctx) {
     }
     const today = ymd();
     list.innerHTML = [...days]
-      .map(
-        ([date, items]) => `
-        <h2 class="day ${date === today ? 'today' : ''}">${esc(formatDay(date))}</h2>
-        ${items.map((e) => (e.fromNeon ? neonCard(e) : card(e))).join('')}`,
-      )
+      .map(([date, items]) => {
+        const on = dayIsOpen(date, today);
+        return `
+        <h2 class="day ${date === today ? 'today' : ''}"><button type="button" class="day-toggle${on ? ' open' : ''}" data-day="${esc(date)}" aria-expanded="${on}">
+          <span class="dchev">${icon('chevron')}</span><span class="dlbl">${esc(formatDay(date))}</span>${on ? '' : `<span class="dcount">${items.length}</span>`}
+        </button></h2>
+        ${on ? items.map((e) => (e.fromNeon ? neonCard(e) : card(e))).join('') : ''}`;
+      })
       .join('');
     loadThumbs();
   }
@@ -233,7 +247,7 @@ export function homeView(root, _ctx) {
     const { volunteers, participants } = countRoles(e.attendees);
     const loc = e.locationId ? locations[e.locationId] : '';
     const f = FORMAT[e.format] || FORMAT['in-person'];
-    const registered = e.neonEventId ? Object.keys(e.registrants || {}).length : 0;
+    const registered = e.neonEventId ? Object.values(e.registrants || {}).filter((r) => !r.cancelled).length : 0;
     return `
       <article class="card event ${esc(e.format)} ${e.date < ymd() ? 'past' : e.date === ymd() ? 'today' : 'future'}${needsVolunteers(e) ? ' flag' : ''}" data-id="${esc(e.id)}" aria-expanded="${open.has(e.id)}">
         <div class="row">
@@ -319,6 +333,24 @@ export function homeView(root, _ctx) {
     if (fresh && seq === neonSeq) {
       neonRaw = fresh;
       renderList();
+      refreshRegistrants(fresh);
+    }
+  }
+
+  /** Imported events whose Neon attendee count changed: fetch their names again and add the new ones. Best effort. */
+  async function refreshRegistrants(neonRows) {
+    // At most one attempt per event and count every 5 minutes (matching the cache), so failures cannot loop.
+    const slot = Math.floor(Date.now() / 300_000);
+    const key = (n) => `${n.neonEventId}|${n.registered}|${n.registrations}|${slot}`;
+    const stale = staleRegistrantEvents(neonRows, events, ymd()).filter((n) => !refreshing.has(key(n)));
+    if (!stale.length) return;
+    for (const n of stale) refreshing.add(key(n));
+    try {
+      const { byEvent } = await fetchRegistrantsFor(stale.map((n) => String(n.neonEventId)));
+      const plan = planNeonEvents(stale, { events, locations: [] }, newId, byEvent);
+      if (plan.ops.length) await commitOps(plan.ops);
+    } catch {
+      /* the next refresh tries again */
     }
     checkCheckins();
   }
@@ -327,7 +359,11 @@ export function homeView(root, _ctx) {
     const rows = Object.values(e.attendees || {}).sort((a, b) => a.name.localeCompare(b.name));
     if (!rows.length) return '<span class="muted">No participants yet.</span>';
     return rows
-      .map((a) => `<span class="pn ${personKind(a.type)}"><span class="pname">${roleOf(a) === 'volunteer' ? icon('heart') : ''}${esc(a.name)}</span></span>`)
+      .map((a) => {
+        const staff = roster.get(a.name.toLowerCase()) === 'staff';
+        const vol = (fixedRole(roster, a.name) || roleOf(a)) === 'volunteer';
+        return `<span class="pn ${personKind(a.type)}${staff ? ' staff' : ''}"><span class="pname">${staff ? `<span class="who" title="Staff">${icon('shield')}</span>` : vol ? icon('heart') : ''}${esc(a.name)}</span></span>`;
+      })
       .join('<span class="sep">, </span>');
   }
 
@@ -350,6 +386,11 @@ export function homeView(root, _ctx) {
   }
 
   $('#list', root).onclick = (ev) => {
+    const dayBtn = ev.target.closest('.day-toggle');
+    if (dayBtn) {
+      dayToggled.set(dayBtn.dataset.day, dayBtn.getAttribute('aria-expanded') !== 'true');
+      return renderList();
+    }
     const imp = ev.target.closest('.neon-import');
     if (imp) return importNeon(imp);
     const mrg = ev.target.closest('.merge-hint');
@@ -384,6 +425,10 @@ export function homeView(root, _ctx) {
     locations = Object.fromEntries(rows.map((l) => [l.id, l.name]));
     renderList();
   });
+  const unsubRoster = watchRoster((rows) => {
+    roster = rosterMap(rows);
+    renderList();
+  });
   const unsubPhotos = watchAllPhotos((rows) => {
     photosByEvent = new Map();
     for (const p of rows) {
@@ -399,5 +444,6 @@ export function homeView(root, _ctx) {
     unsubEvents();
     unsubLoc();
     unsubPhotos();
+    unsubRoster();
   };
 }

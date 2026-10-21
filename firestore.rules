@@ -37,13 +37,31 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/invites/$(request.resource.data.code))
              .data.expiresAt > request.time;
       allow delete: if isAdmin();
-      // A staff member may only set their own display name.
+      // An admin may set anyone's role.
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role'])
+        && request.resource.data.role in ['staff', 'volunteer'];
+      // A member may only set their own display name and whether they are staff or a volunteer.
       allow update: if signedIn()
         && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'role'])
+        && (!('role' in request.resource.data) || request.resource.data.role in ['staff', 'volunteer'])
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 80;
+    }
+
+    // Who is staff or a volunteer, by display name, so every member's participants list can show it.
+    // Kept in step with members/{uid}.role by the app: a member writes their own, an admin anyone's.
+    match /roster/{uid} {
+      allow read: if isMember();
+      allow create, update: if isMember()
+        && (request.auth.uid == uid || isAdmin())
+        && request.resource.data.keys().hasOnly(['name', 'role'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.role in ['staff', 'volunteer'];
+      allow delete: if isAdmin();
     }
 
     match /locations/{id} {
@@ -58,6 +76,22 @@ service cloud.firestore {
         && request.resource.data.name.size() > 0
         && request.resource.data.type in ['osg', 'community', 'member', 'volunteer', 'both'];
       allow delete: if isMember();
+    }
+
+    // Copy of the Neon One account list (doc id = Neon account id), refreshed by the Settings sync.
+    match /neonPeople/{id} {
+      allow read: if isMember();
+      allow create, update: if isMember()
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.nameLower is string
+        && request.resource.data.active is bool;
+      allow delete: if false;
+    }
+
+    match /appMeta/{id} {
+      allow read: if isMember();
+      allow write: if isMember();
     }
 
     // Collection-group reads of photo metadata (event list counts and thumbnails).

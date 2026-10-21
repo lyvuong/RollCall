@@ -1,5 +1,68 @@
 import { describe, it, expect } from 'vitest';
-import { planNeonEvents, neonOnlyEvents, inferFormat, emptyPastNeonEvents, neonSyncPlan, neonEventPatch, friendlyNeonReason } from './neon.js';
+import { planNeonEvents, neonOnlyEvents, inferFormat, emptyPastNeonEvents, neonSyncPlan, neonEventPatch, friendlyNeonReason, staleRegistrantEvents, registrantUpdates } from './neon.js';
+
+describe('staleRegistrantEvents', () => {
+  const local = (o) => ({ id: 'e1', neonEventId: '1', date: '2026-10-30', ...o });
+  const neon = (registered) => [{ neonEventId: '1', registered }];
+  it('flags an upcoming event whose count changed', () => {
+    expect(staleRegistrantEvents(neon(5), [local({ neonCount: 4 })], '2026-10-21')).toHaveLength(1);
+  });
+  it('ignores an unchanged count, past events, unlinked events and a missing count', () => {
+    expect(staleRegistrantEvents(neon(4), [local({ neonCount: 4 })], '2026-10-21')).toHaveLength(0);
+    expect(staleRegistrantEvents(neon(5), [local({ neonCount: 4, date: '2026-10-01' })], '2026-10-21')).toHaveLength(0);
+    expect(staleRegistrantEvents(neon(5), [], '2026-10-21')).toHaveLength(0);
+    expect(staleRegistrantEvents(neon(null), [local({ neonCount: 4 })], '2026-10-21')).toHaveLength(0);
+  });
+  it('treats a never-counted event as stale only when Neon has registrations', () => {
+    expect(staleRegistrantEvents(neon(3), [local()], '2026-10-21')).toHaveLength(1);
+    expect(staleRegistrantEvents(neon(0), [local()], '2026-10-21')).toHaveLength(0);
+  });
+});
+
+describe('swaps and cancellations', () => {
+  const att = (id, name) => ({ attendeeId: id, accountId: '', name });
+  const stored = { a: { name: 'Ann', status: 'present' }, b: { name: 'Bob', status: 'pending' } };
+  it('adds the new person and flags the one who dropped out, keeping confirmations', () => {
+    expect(registrantUpdates([att('a', 'Ann'), att('c', 'Cy')], stored)).toEqual({
+      c: { name: 'Cy', accountId: '', status: 'pending' },
+      b: { cancelled: true },
+    });
+  });
+  it('clears the flag when someone comes back and ignores an unfetched list', () => {
+    expect(registrantUpdates([att('a', 'Ann'), att('b', 'Bob')], { ...stored, b: { ...stored.b, cancelled: true } })).toEqual({ b: { cancelled: false } });
+    expect(registrantUpdates(undefined, stored)).toEqual({});
+  });
+  it('plans a swap on an already-imported event without a count change', () => {
+    const existing = { events: [{ id: 'e1', neonEventId: '1', name: 'Food Drive', date: '2026-03-14', startTime: '09:00', registrants: stored, neonCount: 2, neonRegs: 2 }], locations: [] };
+    const n = { neonEventId: '1', name: 'Food Drive', date: '2026-03-14', startTime: '09:00', registered: 2, registrations: 2 };
+    const plan = planNeonEvents([n], existing, () => 'x', { 1: [att('a', 'Ann'), att('c', 'Cy')] });
+    expect(plan.ops[0].data.registrants).toEqual({ c: { name: 'Cy', accountId: '', status: 'pending' }, b: { cancelled: true } });
+    expect(plan.rows[0].message).toBe('already imported · 1 registered name added · 1 cancelled');
+    expect(plan.stats.registrants).toBe(1);
+  });
+  it('always rechecks today and tomorrow, and rechecks later events when the registration count moves', () => {
+    const e = (date, o) => ({ id: 'e', neonEventId: '1', date, neonCount: 4, neonRegs: 3, ...o });
+    const same = [{ neonEventId: '1', registered: 4, registrations: 3 }];
+    expect(staleRegistrantEvents(same, [e('2026-10-21')], '2026-10-21')).toHaveLength(1);
+    expect(staleRegistrantEvents(same, [e('2026-10-22')], '2026-10-21')).toHaveLength(1);
+    expect(staleRegistrantEvents(same, [e('2026-10-23')], '2026-10-21')).toHaveLength(0);
+    expect(staleRegistrantEvents([{ neonEventId: '1', registered: 4, registrations: 2 }], [e('2026-10-23')], '2026-10-21')).toHaveLength(1);
+  });
+});
+
+describe('planNeonEvents neonCount', () => {
+  const att = (id, name) => ({ attendeeId: id, accountId: '', name });
+  it('adds only the new names and records the count on an already-imported event', () => {
+    const existing = { events: [{ id: 'e1', neonEventId: '1', name: 'Food Drive', date: '2026-03-14', startTime: '09:00', registrants: { a: { name: 'Ann', status: 'present' } }, neonCount: 1 }], locations: [] };
+    const plan = planNeonEvents([{ neonEventId: '1', name: 'Food Drive', date: '2026-03-14', startTime: '09:00', registered: 2 }], existing, () => 'x', { 1: [att('a', 'Ann'), att('b', 'Bob')] });
+    expect(plan.ops).toEqual([{ col: 'events', id: 'e1', data: { registrants: { b: { name: 'Bob', accountId: '', status: 'pending' } }, neonCount: 2 }, merge: true }]);
+  });
+  it('does not record a count when the names were not fetched', () => {
+    const existing = { events: [{ id: 'e1', neonEventId: '1', name: 'Food Drive', date: '2026-03-14', startTime: '09:00', neonCount: 1 }], locations: [] };
+    const plan = planNeonEvents([{ neonEventId: '1', name: 'Food Drive', date: '2026-03-14', startTime: '09:00', registered: 2 }], existing, () => 'x', {});
+    expect(plan.ops).toEqual([]);
+  });
+});
 
 describe('emptyPastNeonEvents', () => {
   it('keeps only past imported events nobody used', () => {

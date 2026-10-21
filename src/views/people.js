@@ -1,10 +1,11 @@
-import { watchEvent, watchLocations, watchPeople, setAttendance, setRole, addPerson, markRegistrant, saveRegistrants } from '../data.js';
+import { watchEvent, watchLocations, watchPeople, setAttendance, setRole, addPerson, markRegistrant, saveRegistrants, searchNeonPeople, linkPerson, watchRoster } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { fetchNeonRegistrants } from '../lib/neonApi.js';
-import { registrantMap } from '../lib/neon.js';
+import { registrantUpdates, isImminent } from '../lib/neon.js';
 import { icon } from '../lib/icons.js';
 import { mountNeonSync } from './neonSync.js';
-import { countRoles, personKind, roleOf, formatDay, eventHours, formatHours, totalVolunteerHours } from '../lib/time.js';
+import { rosterMap, fixedRole as fixedRoleIn } from '../lib/roster.js';
+import { ymd, countRoles, personKind, roleOf, formatDay, eventHours, formatHours, totalVolunteerHours } from '../lib/time.js';
 
 const KIND = { osg: { label: 'OSG', icon: 'star' }, community: { label: 'Community', icon: 'users' } };
 const MAX_RESULTS = 12;
@@ -14,13 +15,19 @@ export function participantsView(root, ctx, eventId) {
   let event;
   let people = [];
   let q = '';
+  let neonHits = []; // OSG Website people matching q (Firestore neonPeople), fetched as the user types
+  let neonTimer;
+  let whoIs = new Map(); // lower-case name -> 'staff' | 'volunteer', for members who said which they are
   const removed = new Set(); // staged removals, applied on Done
   const roleEdits = new Map(); // staged role changes (id -> role), applied on Done
-  const effRole = (id, a) => roleEdits.get(id) || roleOf(a);
+  /** Known members have a fixed role at every event: a volunteer is always a volunteer, staff always a participant. */
+  const fixedRole = (name) => fixedRoleIn(whoIs, name);
+  const effRole = (id, a) => fixedRole(a?.name) || roleEdits.get(id) || roleOf(a);
   // "Include myself" stages the signed-in staff member as a volunteer (nothing is added automatically).
   let peopleLoaded = false;
   let selfStaged = false;
   const selfName = (ctx?.name || '').trim();
+  const selfRole = ctx?.role === 'staff' ? 'participant' : 'volunteer'; // staff are never volunteers
   const selfPerson = () => people.find((x) => x.name.toLowerCase() === selfName.toLowerCase());
   const selfId = () => selfPerson()?.id || '__self__';
   /** Id of the signed-in staff member's entry already saved on the event, if any. */
@@ -28,21 +35,47 @@ export function participantsView(root, ctx, eventId) {
     selfName ? Object.entries(event?.attendees || {}).find(([, a]) => a.name.toLowerCase() === selfName.toLowerCase())?.[0] : undefined;
   const fullAtt = () => ({
     ...(event?.attendees || {}),
-    ...(selfStaged ? { [selfId()]: { name: selfName, type: selfPerson()?.type || 'osg', role: 'volunteer' } } : {}),
+    ...(selfStaged ? { [selfId()]: { name: selfName, type: selfPerson()?.type || 'osg', role: selfRole } } : {}),
   });
   const unsubs = [];
   let regTried = false;
 
-  /** A Neon event with no stored names (imported earlier, or the fetch failed then): fetch and save them once. */
+  /**
+   * Fetch an event's registered names once when the page opens: for an event with none stored (imported earlier, or
+   * the fetch failed then), and for today's and tomorrow's events, whose sign-ups and cancellations can change
+   * without Neon's counts moving.
+   */
   async function backfillRegistrants() {
-    if (regTried || !event?.neonEventId || event.registrants) return;
+    if (regTried || !event?.neonEventId) return;
+    if (event.registrants && !isImminent(event.date, ymd())) return;
     regTried = true;
     try {
-      const map = registrantMap(await fetchNeonRegistrants(event.neonEventId), event.registrants);
+      const map = registrantUpdates(await fetchNeonRegistrants(event.neonEventId), event.registrants);
       if (Object.keys(map).length) await saveRegistrants(eventId, map);
     } catch {
-      toast('Could not load registered names from the OSG Website.');
+      if (!event.registrants) toast('Could not load registered names from the OSG Website.');
     }
+  }
+
+  /** Manual check for sign-ups made on the OSG Website since the names were last fetched. */
+  async function refreshRegistrants() {
+    const btn = $('#regRefresh', root);
+    if (!event?.neonEventId || btn.disabled) return;
+    btn.disabled = true;
+    try {
+      const map = registrantUpdates(await fetchNeonRegistrants(event.neonEventId, { force: true }), event.registrants);
+      const added = Object.values(map).filter((r) => r.name).length;
+      const dropped = Object.values(map).filter((r) => r.cancelled === true).length;
+      if (Object.keys(map).length) await saveRegistrants(eventId, map);
+      toast(
+        added || dropped
+          ? [added && `${added} new registration${added === 1 ? '' : 's'}`, dropped && `${dropped} cancelled`].filter(Boolean).join(', ')
+          : 'No changes on the OSG Website',
+      );
+    } catch {
+      toast('Could not reach the OSG Website.');
+    }
+    btn.disabled = false;
   }
 
   root.innerHTML = `
@@ -59,7 +92,8 @@ export function participantsView(root, ctx, eventId) {
       <p id="sub" class="muted" style="margin-top:0"></p>
       <section class="card" id="regCard" hidden>
         <h2 id="regTitle"></h2>
-        <p class="muted tiny">Registered on the OSG Website. Confirm who showed up.</p>
+        <p class="muted tiny">Registered on the OSG Website. Confirm who showed up.
+          <button type="button" class="btn small ghost" id="regRefresh" title="Check the OSG Website for new registrations">${icon('swap')}<span class="wide">Refresh</span></button></p>
         <ul id="regList" class="plist"></ul>
       </section>
       <section class="card">
@@ -77,10 +111,17 @@ export function participantsView(root, ctx, eventId) {
       </section>
     </div>`;
 
+  $('#regRefresh', root).onclick = refreshRegistrants;
+
   const chip = (p) => {
     const k = KIND[personKind(p.type)];
     return `<span class="badge ${personKind(p.type)}" title="${k.label}">${icon(k.icon)}<span class="wide">${k.label}</span></span>`;
   };
+
+  /** The saved person an OSG Website person stands for: linked by account id, else the same name not yet linked. */
+  const savedFor = (n) =>
+    people.find((p) => p.neonAccountId === n.neonAccountId) ||
+    people.find((p) => !p.neonAccountId && p.name.toLowerCase() === n.name.toLowerCase());
 
   function render() {
     if (event === undefined) return;
@@ -124,15 +165,17 @@ export function participantsView(root, ctx, eventId) {
       .sort((a, b) => a.name.localeCompare(b.name));
     $('#regCard', root).hidden = !regs.length;
     if (regs.length) {
-      const n = (st) => regs.filter((r) => (r.status || 'pending') === st).length;
-      $('#regTitle', root).innerHTML = `${icon('check')} Registered (${regs.length}) <span class="muted tiny">${n('present')} here · ${n('missing')} missing · ${n('pending')} to confirm</span>`;
+      const live = regs.filter((r) => !r.cancelled);
+      const n = (st) => live.filter((r) => (r.status || 'pending') === st).length;
+      const dropped = regs.length - live.length;
+      $('#regTitle', root).innerHTML = `${icon('check')} Registered (${live.length}) <span class="muted tiny">${n('present')} here · ${n('missing')} missing · ${n('pending')} to confirm${dropped ? ` · ${dropped} cancelled` : ''}</span>`;
       $('#regList', root).innerHTML = regs
         .map((r) => {
           const st = r.status || 'pending';
           const nm = esc(r.name);
           const btn = (kind, ic, label, cls) =>
             `<button type="button" class="btn small${st === kind ? ` ${cls}` : ' ghost'}" data-reg="${esc(r.key)}" data-st="${kind}" aria-pressed="${st === kind}" aria-label="${label}: ${nm}" title="${st === kind ? 'Tap to undo' : label}">${icon(ic)}<span class="wide">${label}</span></button>`;
-          return `<li class="prow"><span class="nm">${nm}</span>${btn('present', 'check', 'Here', 'primary')}${btn('missing', 'x', 'Missing', 'danger')}</li>`;
+          return `<li class="prow${r.cancelled ? ' cancelled' : ''}"><span class="nm">${nm}${r.cancelled ? ' <span class="muted tiny">cancelled on the OSG Website</span>' : ''}</span>${btn('present', 'check', 'Here', 'primary')}${btn('missing', 'x', 'Missing', 'danger')}</li>`;
         })
         .join('');
     }
@@ -148,7 +191,9 @@ export function participantsView(root, ctx, eventId) {
             const kind = personKind(a.type);
             const gone = removed.has(a.id);
             const nm = esc(a.name);
-            return `<span class="pn ${kind}${gone ? ' gone' : ''}"><button type="button" class="pname" data-role="${esc(a.id)}" aria-pressed="${vol}" title="${KIND[kind].label} · ${vol ? 'Volunteer (tap for Participant)' : 'Participant (tap for Volunteer)'}">${vol ? icon('heart') : ''}${nm}</button><button type="button" class="mb del${gone ? ' on' : ''}" data-del="${esc(a.id)}" aria-label="${gone ? 'Keep' : 'Remove'} ${nm}" title="${gone ? 'Undo remove' : 'Remove'}">${icon(gone ? 'plus' : 'minus')}</button>${i < cur.length - 1 ? '<span class="sep">,</span>' : ''}</span>`;
+            const fixed = fixedRole(a.name);
+            const whoIcon = whoIs.get(a.name.toLowerCase()) === 'staff' ? `<span class="who" title="Staff">${icon('shield')}</span>` : '';
+            return `<span class="pn ${kind}${whoIs.get(a.name.toLowerCase()) === 'staff' ? ' staff' : ''}${gone ? ' gone' : ''}"><button type="button" class="pname" data-role="${esc(a.id)}" aria-pressed="${vol}" title="${KIND[kind].label} · ${fixed ? (vol ? 'Volunteer' : 'Staff') : vol ? 'Volunteer (tap for Participant)' : 'Participant (tap for Volunteer)'}">${vol ? icon('heart') : ''}${whoIcon}${nm}</button><button type="button" class="mb del${gone ? ' on' : ''}" data-del="${esc(a.id)}" aria-label="${gone ? 'Keep' : 'Remove'} ${nm}" title="${gone ? 'Undo remove' : 'Remove'}">${icon(gone ? 'plus' : 'minus')}</button>${i < cur.length - 1 ? '<span class="sep">,</span>' : ''}</span>`;
           })
           .join(' ')
       : `<span class="muted">No participants yet. Search above to add people.</span>`;
@@ -160,10 +205,23 @@ export function participantsView(root, ctx, eventId) {
       res.innerHTML = '';
       return;
     }
-    const hits = people.filter((p) => !att[p.id] && p.name.toLowerCase().includes(term));
+    // OSG Website people come first; a saved person they stand for is shown once, as the OSG Website row.
+    const fromNeon = neonHits.filter((n) => !att[savedFor(n)?.id]);
+    const shownAsNeon = new Set(neonHits.map((n) => savedFor(n)?.id).filter(Boolean));
+    const hits = people.filter((p) => !att[p.id] && !shownAsNeon.has(p.id) && p.name.toLowerCase().includes(term));
     const rows = hits.slice(0, MAX_RESULTS);
     const exact = people.some((p) => p.name.toLowerCase() === term);
     res.innerHTML =
+      fromNeon
+        .map(
+          (n) => `
+        <li class="prow">
+          <span class="nm">${esc(n.name)}${n.email ? ` <span class="muted small">${esc(n.email)}</span>` : ''}</span>
+          <span class="muted small">OSG Website</span>
+          <button type="button" class="ibadge add" data-neon="${esc(n.neonAccountId)}" aria-label="Add ${esc(n.name)}" title="Add">${icon('plus')}</button>
+        </li>`,
+        )
+        .join('') +
       rows
         .map(
           (p) => `
@@ -175,10 +233,10 @@ export function participantsView(root, ctx, eventId) {
         )
         .join('') +
       (hits.length > rows.length ? `<li class="muted small">${hits.length - rows.length} more… keep typing to narrow down.</li>` : '') +
-      (!hits.length && people.some((p) => p.name.toLowerCase().includes(term)) && !exact
+      (!hits.length && !fromNeon.length && people.some((p) => p.name.toLowerCase().includes(term)) && !exact
         ? `<li class="muted small">Everyone matching is already on this event.</li>`
         : '') +
-      (!exact && !people.some((p) => p.name.toLowerCase().includes(term))
+      (!exact && !fromNeon.length && !people.some((p) => p.name.toLowerCase().includes(term))
         ? `<li class="prow newp">
             <span class="nm">New: ${esc(q.trim())}</span>
             <button type="button" class="btn small" data-new="community">${icon('userPlus')} Community</button>
@@ -230,6 +288,11 @@ export function participantsView(root, ctx, eventId) {
       const saved = event.attendees || {};
       const jobs = [...removed].filter((id) => saved[id]).map((id) => setAttendance(eventId, { id, ...saved[id] }, false));
       for (const [id, role] of roleEdits) if (saved[id] && !removed.has(id)) jobs.push(setRole(eventId, id, role));
+      // Known staff and volunteers get their fixed role, whatever an earlier roll recorded.
+      for (const [id, a] of Object.entries(saved)) {
+        const want = fixedRole(a.name);
+        if (want && want !== roleOf(a) && !removed.has(id) && !roleEdits.has(id)) jobs.push(setRole(eventId, id, want));
+      }
       if (selfStaged) {
         let me = selfPerson();
         if (!me) {
@@ -237,7 +300,7 @@ export function participantsView(root, ctx, eventId) {
           created.done.catch(() => toast('Could not save person.'));
           me = created.person;
         }
-        jobs.push(setAttendance(eventId, me, true, roleEdits.get(selfId()) || 'volunteer'));
+        jobs.push(setAttendance(eventId, me, true, roleEdits.get(selfId()) || selfRole));
       }
       removed.clear();
       roleEdits.clear();
@@ -245,6 +308,10 @@ export function participantsView(root, ctx, eventId) {
       location.hash = '#/';
     } else if (t.dataset.role) {
       const id = t.dataset.role;
+      if (fixedRole(att[id]?.name)) {
+        toast(fixedRole(att[id].name) === 'volunteer' ? 'Volunteers are always volunteers.' : 'Staff take part as participants, not volunteers.');
+        return;
+      }
       const next = effRole(id, att[id]) === 'volunteer' ? 'participant' : 'volunteer';
       if (selfStaged && id === selfId()) {
         if (next === 'volunteer') roleEdits.delete(id);
@@ -255,15 +322,33 @@ export function participantsView(root, ctx, eventId) {
     } else if (t.dataset.add) {
       const p = people.find((x) => x.id === t.dataset.add);
       if (p) {
-        setAttendance(eventId, p, true).catch(fail);
+        setAttendance(eventId, p, true, fixedRole(p.name) || 'participant').catch(fail);
         toast(`${p.name} added as participant · ${Object.keys(att).length + 1} total`);
+      }
+    } else if (t.dataset.neon) {
+      const n = neonHits.find((x) => x.neonAccountId === t.dataset.neon);
+      if (n) {
+        let person = savedFor(n);
+        if (person) {
+          if (!person.neonAccountId) linkPerson(person.id, n.neonAccountId).catch(() => toast('Could not link person.'));
+        } else {
+          const created = addPerson(n.name, 'community', { neonAccountId: n.neonAccountId });
+          created.done.catch(() => toast('Could not save person.'));
+          person = created.person;
+        }
+        setAttendance(eventId, person, true, fixedRole(person.name) || 'participant').catch(fail);
+        toast(`${n.name} added as participant · ${Object.keys(att).length + 1} total`);
+        q = '';
+        neonHits = [];
+        $('#q', root).value = '';
+        render();
       }
     } else if (t.dataset.new) {
       const name = q.trim().replace(/\s+/g, ' ');
       if (!name) return;
       const created = addPerson(name, t.dataset.new);
       created.done.catch(() => toast('Could not save person.'));
-      setAttendance(eventId, created.person, true).catch(fail);
+      setAttendance(eventId, created.person, true, fixedRole(created.person.name) || 'participant').catch(fail);
       toast(`${name} added as new ${t.dataset.new === 'osg' ? 'OSG' : 'community'} participant · ${Object.keys(att).length + 1} total`);
       q = '';
       $('#q', root).value = '';
@@ -273,6 +358,22 @@ export function participantsView(root, ctx, eventId) {
   $('#q', root).oninput = (ev) => {
     q = ev.target.value;
     render();
+    clearTimeout(neonTimer);
+    const asked = q;
+    if (!asked.trim()) {
+      neonHits = [];
+      return;
+    }
+    neonTimer = setTimeout(async () => {
+      try {
+        const hits = await searchNeonPeople(asked);
+        if (q !== asked) return; // typed on since
+        neonHits = hits;
+        render();
+      } catch {
+        /* the list is a bonus: saved people still work without it */
+      }
+    }, 250);
   };
 
   let locations = [];
@@ -291,6 +392,10 @@ export function participantsView(root, ctx, eventId) {
       peopleLoaded = true;
       render();
     }),
+    watchRoster((rows) => {
+      whoIs = rosterMap(rows);
+      render();
+    }),
     watchEvent(eventId, (e) => {
       event = e;
       render();
@@ -298,5 +403,9 @@ export function participantsView(root, ctx, eventId) {
     }),
   );
 
-  return () => (sync.destroy(), unsubs.forEach((u) => u()));
+  return () => {
+    clearTimeout(neonTimer);
+    sync.destroy();
+    unsubs.forEach((u) => u());
+  };
 }
