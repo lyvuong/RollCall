@@ -3,6 +3,7 @@ import { esc, $, toast } from '../lib/dom.js';
 import { fetchNeonRegistrants } from '../lib/neonApi.js';
 import { registrantMap } from '../lib/neon.js';
 import { icon } from '../lib/icons.js';
+import { rosterMap, fixedRole as fixedRoleIn } from '../lib/roster.js';
 import { countRoles, personKind, roleOf, formatDay, eventHours, formatHours, totalVolunteerHours } from '../lib/time.js';
 
 const KIND = { osg: { label: 'OSG', icon: 'star' }, community: { label: 'Community', icon: 'users' } };
@@ -19,7 +20,7 @@ export function participantsView(root, ctx, eventId) {
   const removed = new Set(); // staged removals, applied on Done
   const roleEdits = new Map(); // staged role changes (id -> role), applied on Done
   /** Known members have a fixed role at every event: a volunteer is always a volunteer, staff always a participant. */
-  const fixedRole = (name) => ({ volunteer: 'volunteer', staff: 'participant' })[whoIs.get(String(name).toLowerCase())] || null;
+  const fixedRole = (name) => fixedRoleIn(whoIs, name);
   const effRole = (id, a) => fixedRole(a?.name) || roleEdits.get(id) || roleOf(a);
   // "Include myself" stages the signed-in staff member as a volunteer (nothing is added automatically).
   let peopleLoaded = false;
@@ -157,7 +158,7 @@ export function participantsView(root, ctx, eventId) {
             const nm = esc(a.name);
             const fixed = fixedRole(a.name);
             const whoIcon = whoIs.get(a.name.toLowerCase()) === 'staff' ? `<span class="who" title="Staff">${icon('shield')}</span>` : '';
-            return `<span class="pn ${kind}${gone ? ' gone' : ''}"><button type="button" class="pname" data-role="${esc(a.id)}" aria-pressed="${vol}" title="${KIND[kind].label} · ${fixed ? (vol ? 'Volunteer' : 'Staff') : vol ? 'Volunteer (tap for Participant)' : 'Participant (tap for Volunteer)'}">${vol ? icon('heart') : ''}${whoIcon}${nm}</button><button type="button" class="mb del${gone ? ' on' : ''}" data-del="${esc(a.id)}" aria-label="${gone ? 'Keep' : 'Remove'} ${nm}" title="${gone ? 'Undo remove' : 'Remove'}">${icon(gone ? 'plus' : 'minus')}</button>${i < cur.length - 1 ? '<span class="sep">,</span>' : ''}</span>`;
+            return `<span class="pn ${kind}${whoIs.get(a.name.toLowerCase()) === 'staff' ? ' staff' : ''}${gone ? ' gone' : ''}"><button type="button" class="pname" data-role="${esc(a.id)}" aria-pressed="${vol}" title="${KIND[kind].label} · ${fixed ? (vol ? 'Volunteer' : 'Staff') : vol ? 'Volunteer (tap for Participant)' : 'Participant (tap for Volunteer)'}">${vol ? icon('heart') : ''}${whoIcon}${nm}</button><button type="button" class="mb del${gone ? ' on' : ''}" data-del="${esc(a.id)}" aria-label="${gone ? 'Keep' : 'Remove'} ${nm}" title="${gone ? 'Undo remove' : 'Remove'}">${icon(gone ? 'plus' : 'minus')}</button>${i < cur.length - 1 ? '<span class="sep">,</span>' : ''}</span>`;
           })
           .join(' ')
       : `<span class="muted">No participants yet. Search above to add people.</span>`;
@@ -347,7 +348,7 @@ export function participantsView(root, ctx, eventId) {
       render();
     }),
     watchRoster((rows) => {
-      whoIs = new Map(rows.map((r) => [r.name.toLowerCase(), r.role]));
+      whoIs = rosterMap(rows);
       render();
     }),
     watchEvent(eventId, (e) => {

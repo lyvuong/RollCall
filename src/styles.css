@@ -350,8 +350,9 @@ textarea.input { resize: vertical; }
 .pname { display: inline; border: 0; background: none; font: inherit; font-weight: 500; padding: 4px 0 4px 2px; cursor: pointer; }
 .pn.osg .pname { color: var(--sky-ink); }
 .pn.community .pname { color: var(--mint-ink); }
+.pn.staff .pname { color: var(--peach-ink); }
 .pn.gone .pname { text-decoration: line-through; opacity: .6; }
-.pname .who { margin-right: 3px; color: var(--muted); }
+.pname .who { margin-right: 3px; color: inherit; }
 .pname .who .i { width: .8em; height: .8em; margin: 0; color: inherit; vertical-align: -1px; }
 .pname .i { width: .85em; height: .85em; vertical-align: -1px; margin-right: 3px; color: var(--rose-ink); }
 .mb { display: inline-flex; vertical-align: middle; align-items: center; justify-content: center; width: 32px; height: 32px; margin-left: 3px; border: 0; border-radius: 999px; background: var(--primary-tint); color: var(--primary-ink); cursor: pointer; padding: 0; }
