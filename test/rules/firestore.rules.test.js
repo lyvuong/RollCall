@@ -5,7 +5,7 @@ import {
   assertSucceeds,
   assertFails,
 } from '@firebase/rules-unit-testing';
-import { collectionGroup, getDocs, doc, getDoc, setDoc, deleteDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore';
+import { collectionGroup, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore';
 
 let env;
 const future = () => Timestamp.fromMillis(Date.now() + 86_400_000);
@@ -99,6 +99,74 @@ describe('data access', () => {
       });
     }
     await assertSucceeds(batch.commit());
+  });
+});
+
+describe('member role', () => {
+  it('a member can set their own role to staff or volunteer, nothing else', async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'members', 'member1'), { code: 'GOODCODE', email: 'm@x.org', name: 'Mo' }));
+    const db = env.authenticatedContext('member1').firestore();
+    await assertSucceeds(updateDoc(doc(db, 'members', 'member1'), { role: 'staff' }));
+    await assertSucceeds(updateDoc(doc(db, 'members', 'member1'), { role: 'volunteer' }));
+    await assertFails(updateDoc(doc(db, 'members', 'member1'), { role: 'admin' }));
+    await assertFails(updateDoc(doc(db, 'members', 'member1'), { email: 'x@y.org' }));
+  });
+
+  it("an admin can set anyone's role, but nothing else", async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'members', 'member1'), { code: 'GOODCODE', email: 'm@x.org', name: 'Mo' }));
+    const db = env.authenticatedContext('admin1').firestore();
+    await assertSucceeds(updateDoc(doc(db, 'members', 'member1'), { role: 'staff' }));
+    await assertFails(updateDoc(doc(db, 'members', 'member1'), { role: 'boss' }));
+    await assertFails(updateDoc(doc(db, 'members', 'member1'), { name: 'Other' }));
+  });
+
+  it("cannot set someone else's role", async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'members', 'member1'), { code: 'GOODCODE', email: 'm@x.org', name: 'Mo' }));
+    const db = env.authenticatedContext('stranger').firestore();
+    await assertFails(updateDoc(doc(db, 'members', 'member1'), { role: 'staff' }));
+  });
+});
+
+describe('roster', () => {
+  const entry = { name: 'Mo', role: 'staff' };
+
+  it("members read it; a member writes only their own entry, an admin anyone's", async () => {
+    const db = env.authenticatedContext('member1').firestore();
+    await assertSucceeds(setDoc(doc(db, 'roster', 'member1'), entry));
+    await assertFails(setDoc(doc(db, 'roster', 'someone'), entry));
+    await assertSucceeds(getDoc(doc(db, 'roster', 'member1')));
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'members', 'admin1'), { code: 'GOODCODE', email: 'a@x.org', name: 'Al' }));
+    const admin = env.authenticatedContext('admin1').firestore();
+    await assertSucceeds(setDoc(doc(admin, 'roster', 'someone'), { name: 'Al', role: 'volunteer' }));
+  });
+
+  it('needs a valid role and no extra fields; non-members are denied', async () => {
+    const db = env.authenticatedContext('member1').firestore();
+    await assertFails(setDoc(doc(db, 'roster', 'member1'), { ...entry, role: 'boss' }));
+    await assertFails(setDoc(doc(db, 'roster', 'member1'), { ...entry, extra: 1 }));
+    const stranger = env.authenticatedContext('stranger').firestore();
+    await assertFails(getDoc(doc(stranger, 'roster', 'member1')));
+  });
+});
+
+describe('neon people copy', () => {
+  const person = { neonAccountId: '7', name: 'Ada L', nameLower: 'ada l', lastLower: 'l', email: '', active: true };
+
+  it('members can write and search it, but never delete', async () => {
+    const db = env.authenticatedContext('member1').firestore();
+    await assertSucceeds(setDoc(doc(db, 'neonPeople', '7'), person));
+    await assertSucceeds(setDoc(doc(db, 'neonPeople', '7'), { ...person, active: false }));
+    await assertSucceeds(getDoc(doc(db, 'neonPeople', '7')));
+    await assertFails(deleteDoc(doc(db, 'neonPeople', '7')));
+  });
+
+  it('needs a name and an active flag; non-members are denied', async () => {
+    const db = env.authenticatedContext('member1').firestore();
+    await assertFails(setDoc(doc(db, 'neonPeople', '8'), { ...person, name: '' }));
+    await assertFails(setDoc(doc(db, 'neonPeople', '8'), { ...person, active: 'yes' }));
+    const stranger = env.authenticatedContext('stranger').firestore();
+    await assertFails(setDoc(doc(stranger, 'neonPeople', '9'), person));
+    await assertFails(getDoc(doc(stranger, 'appMeta', 'neonPeopleSync')));
   });
 });
 

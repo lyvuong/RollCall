@@ -5,7 +5,7 @@ import {
   isSignInWithEmailLink, sendSignInLinkToEmail, signInWithEmailLink,
 } from 'firebase/auth';
 import { auth } from './firebase.js';
-import { getMember, getMembership, getIsAdmin, redeemInvite, setMyName } from './data.js';
+import { getMember, getMembership, getIsAdmin, redeemInvite, setMyName, syncRoster } from './data.js';
 import { esc, $, toast } from './lib/dom.js';
 import { icon, logo } from './lib/icons.js';
 import { applyTheme, toggleTheme, effective } from './lib/theme.js';
@@ -181,7 +181,8 @@ async function enter(user) {
   const member = await getMember(user.uid);
   if (!member) return showJoin(user);
   if (!member.name) return showName(user);
-  ctx = { user, name: member.name, isAdmin: await getIsAdmin(user.uid) };
+  ctx = { user, name: member.name, role: member.role || null, isAdmin: await getIsAdmin(user.uid) };
+  if (member.role) syncRoster(user.uid, member.name, member.role).catch(() => {});
   renderShell();
   route();
 }

@@ -1,8 +1,9 @@
-import { watchEvents, watchLocations, watchAllPhotos, loadExisting, newId, commitOps } from '../data.js';
+import { watchEvents, watchLocations, watchAllPhotos, watchRoster, loadExisting, newId, commitOps } from '../data.js';
 import { fetchNeonEvents, readNeonCache, fetchRegistrantsFor } from '../lib/neonApi.js';
 import { neonOnlyEvents, planNeonEvents } from '../lib/neon.js';
 import { photoUrl } from '../lib/photos.js';
 import { esc, $, toast } from '../lib/dom.js';
+import { rosterMap, fixedRole } from '../lib/roster.js';
 import { icon } from '../lib/icons.js';
 import {
   ymd,
@@ -54,6 +55,7 @@ export function homeView(root, _ctx) {
   let locations = {};
   let photosByEvent = new Map(); // eventId -> photo metadata[]
   let unsubEvents = () => {};
+  let roster = new Map(); // lower-case name -> 'staff' | 'volunteer'
   let neonRaw = []; // last Neon result for the visible range (cached copy first, then fresh)
   let neonSeq = 0; // ignores answers for a range the user has already moved away from
 
@@ -281,7 +283,11 @@ export function homeView(root, _ctx) {
     const rows = Object.values(e.attendees || {}).sort((a, b) => a.name.localeCompare(b.name));
     if (!rows.length) return '<span class="muted">No participants yet.</span>';
     return rows
-      .map((a) => `<span class="pn ${personKind(a.type)}"><span class="pname">${roleOf(a) === 'volunteer' ? icon('heart') : ''}${esc(a.name)}</span></span>`)
+      .map((a) => {
+        const staff = roster.get(a.name.toLowerCase()) === 'staff';
+        const vol = (fixedRole(roster, a.name) || roleOf(a)) === 'volunteer';
+        return `<span class="pn ${personKind(a.type)}${staff ? ' staff' : ''}"><span class="pname">${staff ? `<span class="who" title="Staff">${icon('shield')}</span>` : vol ? icon('heart') : ''}${esc(a.name)}</span></span>`;
+      })
       .join('<span class="sep">, </span>');
   }
 
@@ -332,6 +338,10 @@ export function homeView(root, _ctx) {
     locations = Object.fromEntries(rows.map((l) => [l.id, l.name]));
     renderList();
   });
+  const unsubRoster = watchRoster((rows) => {
+    roster = rosterMap(rows);
+    renderList();
+  });
   const unsubPhotos = watchAllPhotos((rows) => {
     photosByEvent = new Map();
     for (const p of rows) {
@@ -347,5 +357,6 @@ export function homeView(root, _ctx) {
     unsubEvents();
     unsubLoc();
     unsubPhotos();
+    unsubRoster();
   };
 }

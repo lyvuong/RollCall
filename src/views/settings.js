@@ -17,11 +17,20 @@ import {
   loadExisting,
   markNotSame,
   clearNotSame,
+  getNeonPeople,
+  applyPeopleSync,
+  watchPeopleSync,
+  setMemberRole,
+  watchRoster,
+  syncRoster,
+  ROLES,
 } from '../data.js';
 import { esc, $, toast, randomCode } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { ymd, addDays, personKind } from '../lib/time.js';
 import { getPref, setPref } from '../lib/theme.js';
+import { planPeopleSync, daysSince } from '../lib/peopleSync.js';
+import { fetchAllNeonAccounts } from '../lib/neonApi.js';
 import { findDuplicateGroups, attendanceStats, inactivePeople, ignoredPairs } from '../lib/people.js';
 
 const fail = (msg) => () => toast(msg);
@@ -43,6 +52,16 @@ export function settingsView(root, ctx) {
         <button type="button" data-t="dark">${icon('moon')} Dark</button>
         <button type="button" data-t="system">${icon('monitor')} System</button>
       </div>
+    </section>
+
+    <section class="card">
+      <h2>${icon('user')} My role</h2>
+      <p class="muted">Staff can take part in events but are not volunteers, so their time never counts toward volunteer hours. Volunteers can do both.</p>
+      <div class="seg" id="roleSeg" role="group" aria-label="My role">
+        <button type="button" data-r="staff">${icon('shield')} Staff</button>
+        <button type="button" data-r="volunteer">${icon('heart')} Volunteer</button>
+      </div>
+      <p class="muted" id="roleNote"></p>
     </section>
 
     <section class="card">
@@ -94,10 +113,12 @@ export function settingsView(root, ctx) {
       <h2>${icon('download')} OSG Website</h2>
       <p class="muted">Bring events from the OSG Website into RollCall.</p>
       <a class="btn" href="#/neon">${icon('download')} Import events from the OSG Website</a>
+      <p class="muted" id="psStatus">Checking the last people sync…</p>
+      <button class="btn" id="psSync">${icon('userPlus')} Update people from the OSG Website</button>
     </section>
     <section class="card">
-      <h2>${icon('shield')} Staff</h2>
-      <div id="mems" class="tags"></div>
+      <h2>${icon('shield')} People who sign in</h2>
+      <div id="mems"></div>
     </section>`
         : ''
     }
@@ -426,31 +447,105 @@ export function settingsView(root, ctx) {
       toast(`Code ${code} created`);
     };
 
+    // Roles chosen before the roster existed: record them once so participants lists can show them.
+    let roster;
+    const backfillRoster = () => {
+      if (!roster) return;
+      const have = new Map(roster.map((r) => [r.id, r]));
+      for (const m of members) {
+        const r = have.get(m.id);
+        if (m.role && m.name && (!r || r.role !== m.role || r.name !== m.name)) syncRoster(m.id, m.name, m.role).catch(() => {});
+      }
+    };
+    const memberTag = (m) =>
+      `<span class="tag" data-id="${esc(m.id)}">${icon('user')}<span class="tname" title="${esc(m.email || '')}">${esc(m.name || m.email || m.id)}</span>${
+        m.id === ctx.user.uid
+          ? '<small class="muted">you</small>'
+          : `<button type="button" class="mb del" data-act="del" aria-label="Revoke access" title="Revoke access">${icon('x')}</button>`
+      }${['staff', 'volunteer']
+        .filter((r) => r !== m.role)
+        .map((r) => `<button type="button" class="mb" data-act="role" data-r="${r}" aria-label="Make ${ROLES[r]}" title="Make ${ROLES[r]}">${icon(r === 'staff' ? 'shield' : 'heart')}</button>`)
+        .join('')}</span>`;
     const renderMembers = () => {
+      const group = (title, rows) =>
+        rows.length ? `<h3>${title} (${rows.length})</h3><div class="tags">${rows.map(memberTag).join('')}</div>` : '';
       $('#mems', root).innerHTML = members.length
-        ? members
-            .map(
-              (m) => `<span class="tag" data-id="${esc(m.id)}">${icon('user')}<span class="tname" title="${esc(m.email || '')}">${esc(m.name || m.email || m.id)}</span>${
-                m.id === ctx.user.uid
-                  ? '<small class="muted">you</small>'
-                  : `<button type="button" class="mb del" data-act="del" aria-label="Revoke access" title="Revoke access">${icon('x')}</button>`
-              }</span>`,
-            )
-            .join('')
-        : '<span class="muted">No staff.</span>';
+        ? group('Staff', members.filter((m) => m.role === 'staff')) +
+          group('Volunteers', members.filter((m) => m.role === 'volunteer')) +
+          group('Not chosen yet', members.filter((m) => m.role !== 'staff' && m.role !== 'volunteer'))
+        : '<span class="muted">Nobody yet.</span>';
     };
     $('#mems', root).onclick = (ev) => {
       const btn = ev.target.closest('button');
       const li = ev.target.closest('[data-id]');
       if (!btn || !li) return;
+      if (btn.dataset.act === 'role') {
+        setMemberRole(li.dataset.id, btn.dataset.r, members.find((m) => m.id === li.dataset.id)?.name || 'Unnamed').catch(fail('Could not change the role.'));
+        return;
+      }
       if (confirm("Revoke this person's access?")) removeMember(li.dataset.id).catch(fail('Could not revoke.'));
     };
 
+    /* ----- people list from the OSG Website: weekly copy for name search ----- */
+    const WEEK_DAYS = 7;
+    let lastSync; // undefined = loading, null = never
+    const renderSync = () => {
+      const days = lastSync ? daysSince(lastSync.at?.toMillis?.()) : null;
+      const stale = days === null || days >= WEEK_DAYS;
+      $('#psStatus', root).innerHTML =
+        lastSync === undefined
+          ? 'Checking the last people sync…'
+          : days === null
+            ? 'The people list has not been copied from the OSG Website yet. Name search there needs it.'
+            : `${stale ? '<strong>Due:</strong> ' : ''}People list last updated ${days === 0 ? 'today' : `${days} day${days === 1 ? '' : 's'} ago`} (${lastSync.added} added, ${lastSync.deactivated} no longer registered).`;
+    };
+    let syncing = false;
+    $('#psSync', root).onclick = async () => {
+      if (syncing) return;
+      syncing = true;
+      const btn = $('#psSync', root);
+      btn.disabled = true;
+      try {
+        const accounts = await fetchAllNeonAccounts((done, total) => ($('#psStatus', root).textContent = `Reading the OSG Website… ${done} of ${total}`));
+        $('#psStatus', root).textContent = 'Comparing with the saved list…';
+        const plan = planPeopleSync(accounts, await getNeonPeople());
+        if (plan.suspicious) {
+          toast(`Stopped: ${plan.deactivate.length} people would be removed. Nothing changed.`);
+        } else {
+          await applyPeopleSync(plan);
+          toast(`People updated · ${plan.add.length} added, ${plan.update.length} changed, ${plan.deactivate.length} removed`);
+        }
+      } catch (e) {
+        toast(e?.status === 429 ? 'The OSG Website is busy. Try again in a minute.' : 'Could not update people.');
+      } finally {
+        syncing = false;
+        btn.disabled = false;
+        renderSync();
+      }
+    };
+
     unsubs.push(
+      watchPeopleSync((s) => ((lastSync = s), renderSync())),
       watchInvites((rows) => ((invites = rows), renderInvites())),
-      watchMembers((rows) => ((members = rows), renderMembers())),
+      watchMembers((rows) => ((members = rows), renderMembers(), backfillRoster())),
+      watchRoster((rows) => ((roster = rows), backfillRoster())),
     );
   }
+
+  /* ----- my role: staff or volunteer ----- */
+  const renderRole = () => {
+    for (const b of $('#roleSeg', root).querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.r === ctx.role));
+    $('#roleNote', root).textContent = ctx.role ? `You are signed in as ${ROLES[ctx.role]}.` : 'Choose one so events count your time correctly.';
+  };
+  $('#roleSeg', root).onclick = (ev) => {
+    const r = ev.target.closest('button')?.dataset.r;
+    if (!r || r === ctx.role) return;
+    setMemberRole(ctx.user.uid, r, ctx.name).then(
+      () => ((ctx.role = r), renderRole(), toast(`Saved: ${ROLES[r]}`)),
+      fail('Could not save your role.'),
+    );
+  };
+  renderRole();
 
   unsubs.push(
     watchLocations((rows) => ((locations = rows), renderLocs())),

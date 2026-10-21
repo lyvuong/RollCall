@@ -59,6 +59,21 @@ export async function getMember(uid) {
 
 export const setMyName = (uid, name) => updateDoc(doc(db, 'members', uid), { name: name.trim().replace(/\s+/g, ' ') });
 
+/** Staff can take part in events but never as volunteers (no volunteer hours); volunteers can do both. */
+export const ROLES = { staff: 'Staff', volunteer: 'Volunteer' };
+export function setMemberRole(uid, role, name) {
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'members', uid), { role });
+  batch.set(doc(db, 'roster', uid), { name, role });
+  return batch.commit();
+}
+
+/** Re-record a member's role in the roster (for roles chosen before the roster existed). */
+export const syncRoster = (uid, name, role) => setDoc(doc(db, 'roster', uid), { name, role });
+
+/** Live roster: [{ id, name, role }] of every member who has chosen staff or volunteer. */
+export const watchRoster = (cb) => watchCollection(collection(db, 'roster'), cb);
+
 export async function getIsAdmin(uid) {
   try {
     return (await getDoc(doc(db, 'admins', uid))).exists();
@@ -212,11 +227,57 @@ export function watchPeople(cb) {
 }
 
 /** Returns { person, done }; person is usable immediately (see createEvent). */
-export function addPerson(name, type) {
+export function addPerson(name, type, extra = {}) {
   const ref = doc(collection(db, 'people'));
   const clean = name.trim();
-  const done = setDoc(ref, { name: clean, nameLower: clean.toLowerCase(), type, createdAt: serverTimestamp() });
-  return { person: { id: ref.id, name: clean, type }, done };
+  const done = setDoc(ref, { name: clean, nameLower: clean.toLowerCase(), type, createdAt: serverTimestamp(), ...extra });
+  return { person: { id: ref.id, name: clean, type, ...extra }, done };
+}
+
+/** Tie a saved person to their Neon One account (set the first time they are picked from the OSG Website list). */
+export const linkPerson = (id, neonAccountId) => updateDoc(doc(db, 'people', id), { neonAccountId });
+
+/* ---------- people copied from Neon One (see lib/peopleSync.js) ---------- */
+
+const SEARCH_HITS = 15;
+const WRITES_PER_BATCH = 400;
+
+/** Active Neon people whose full name or last name starts with `term`; at most a few reads per keystroke. */
+export async function searchNeonPeople(term) {
+  const t = term.trim().toLowerCase();
+  if (!t) return [];
+  const prefix = (field) => getDocs(query(collection(db, 'neonPeople'), orderBy(field), where(field, '>=', t), where(field, '<=', `${t}\uf8ff`), limit(SEARCH_HITS)));
+  const [byName, byLast] = await Promise.all([prefix('nameLower'), prefix('lastLower')]);
+  const seen = new Map();
+  for (const d of [...byName.docs, ...byLast.docs]) seen.set(d.id, withId(d));
+  return [...seen.values()].filter((p) => p.active !== false).sort((a, b) => a.name.localeCompare(b.name)).slice(0, SEARCH_HITS);
+}
+
+/** Every stored Neon person (one read each); only the weekly sync needs this. */
+export const getNeonPeople = async () => (await getDocs(collection(db, 'neonPeople'))).docs.map(withId);
+
+/** Write a planPeopleSync result and stamp when it ran. */
+export async function applyPeopleSync(plan) {
+  const ops = [
+    ...[...plan.add, ...plan.update].map((x) => (b) => b.set(doc(db, 'neonPeople', x.id), x.data)),
+    ...plan.deactivate.map((id) => (b) => b.update(doc(db, 'neonPeople', id), { active: false })),
+  ];
+  for (let i = 0; i < ops.length; i += WRITES_PER_BATCH) {
+    const batch = writeBatch(db);
+    ops.slice(i, i + WRITES_PER_BATCH).forEach((op) => op(batch));
+    await batch.commit();
+  }
+  await setDoc(doc(db, 'appMeta', 'neonPeopleSync'), {
+    at: serverTimestamp(),
+    added: plan.add.length,
+    updated: plan.update.length,
+    deactivated: plan.deactivate.length,
+  });
+}
+
+/** Live { at, added, updated, deactivated } of the last people sync, or null when it never ran. */
+export function watchPeopleSync(cb) {
+  return onSnapshot(doc(db, 'appMeta', 'neonPeopleSync'), (s) => cb(s.exists() ? s.data() : null), () => cb(null));
 }
 
 export function updatePerson(id, { name, type }) {
@@ -307,7 +368,12 @@ export function watchMembers(cb) {
   return watchCollection(collection(db, 'members'), cb);
 }
 
-export const removeMember = (uid) => deleteDoc(doc(db, 'members', uid));
+export async function removeMember(uid) {
+  const batch = writeBatch(db);
+  batch.delete(doc(db, 'members', uid));
+  batch.delete(doc(db, 'roster', uid));
+  await batch.commit();
+}
 
 /* ---------- suggestions & bulk import ---------- */
 
