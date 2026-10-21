@@ -1,6 +1,6 @@
 import { watchEvents, watchLocations, watchAllPhotos, watchRoster, loadExisting, newId, commitOps } from '../data.js';
 import { fetchNeonEvents, readNeonCache, fetchRegistrantsFor } from '../lib/neonApi.js';
-import { neonOnlyEvents, planNeonEvents } from '../lib/neon.js';
+import { neonOnlyEvents, planNeonEvents, staleRegistrantEvents } from '../lib/neon.js';
 import { photoUrl } from '../lib/photos.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { rosterMap, fixedRole } from '../lib/roster.js';
@@ -42,6 +42,7 @@ export const PRESETS = [
 ];
 
 // Remembered across navigation within the session.
+const refreshing = new Set(); // registrant refreshes already tried this session (see refreshRegistrants)
 let range = null;
 const open = new Set(); // expanded event cards
 let filterOpen = false; // date-range card expanded?
@@ -193,7 +194,7 @@ export function homeView(root, _ctx) {
     const { volunteers, participants } = countRoles(e.attendees);
     const loc = e.locationId ? locations[e.locationId] : '';
     const f = FORMAT[e.format] || FORMAT['in-person'];
-    const registered = e.neonEventId ? Object.keys(e.registrants || {}).length : 0;
+    const registered = e.neonEventId ? Object.values(e.registrants || {}).filter((r) => !r.cancelled).length : 0;
     return `
       <article class="card event ${esc(e.format)} ${e.date < ymd() ? 'past' : e.date === ymd() ? 'today' : 'future'}${needsVolunteers(e) ? ' flag' : ''}" data-id="${esc(e.id)}" aria-expanded="${open.has(e.id)}">
         <div class="row">
@@ -276,6 +277,24 @@ export function homeView(root, _ctx) {
     if (fresh && seq === neonSeq) {
       neonRaw = fresh;
       renderList();
+      refreshRegistrants(fresh);
+    }
+  }
+
+  /** Imported events whose Neon attendee count changed: fetch their names again and add the new ones. Best effort. */
+  async function refreshRegistrants(neonRows) {
+    // At most one attempt per event and count every 5 minutes (matching the cache), so failures cannot loop.
+    const slot = Math.floor(Date.now() / 300_000);
+    const key = (n) => `${n.neonEventId}|${n.registered}|${n.registrations}|${slot}`;
+    const stale = staleRegistrantEvents(neonRows, events, ymd()).filter((n) => !refreshing.has(key(n)));
+    if (!stale.length) return;
+    for (const n of stale) refreshing.add(key(n));
+    try {
+      const { byEvent } = await fetchRegistrantsFor(stale.map((n) => String(n.neonEventId)));
+      const plan = planNeonEvents(stale, { events, locations: [] }, newId, byEvent);
+      if (plan.ops.length) await commitOps(plan.ops);
+    } catch {
+      /* the next refresh tries again */
     }
   }
 

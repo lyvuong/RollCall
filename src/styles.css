@@ -546,4 +546,6 @@ button.badge.neon-import:disabled { opacity: .6; cursor: wait; }
 /* Neon registrants: the chosen answer is filled in */
 .prow .btn.small.danger[aria-pressed="true"] { background: var(--rose-bg); color: var(--rose-ink); border-color: transparent; }
 .pill.reg { background: var(--mint-bg); color: var(--mint-ink); }
+.prow.cancelled .nm { opacity: .65; text-decoration: line-through; text-decoration-color: var(--rose-ink); }
+.prow.cancelled .nm .tiny { text-decoration: none; display: inline-block; }
 .selfrow { margin: 0 0 10px; }

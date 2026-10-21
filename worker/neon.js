@@ -22,6 +22,8 @@ export const EVENT_FIELDS = {
   startTime: 'Event Start Time',
   endTime: 'Event End Time',
   location: 'Event Location Name',
+  registered: 'Event Registration Attendee Count',
+  registrations: 'Registrants', // number of registrations (one registration can cover several attendees)
 };
 
 const json = (body, status = 200) =>
@@ -89,6 +91,8 @@ async function listAll(env, path, key) {
 // Neon sends times as "17:30:00" (sometimes "19:00:01"); the app uses "HH:MM".
 const hm = (t) => String(t || '').slice(0, 5);
 
+const count = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+
 const normalizeEvent = (r) => ({
   neonEventId: String(r[EVENT_FIELDS.id]),
   name: r[EVENT_FIELDS.name] || '',
@@ -97,6 +101,9 @@ const normalizeEvent = (r) => ({
   startTime: hm(r[EVENT_FIELDS.startTime]),
   endTime: hm(r[EVENT_FIELDS.endTime]),
   location: String(r[EVENT_FIELDS.location] || '').trim(),
+  // Neon's running counts; they let the app notice sign-ups without fetching every event's attendees.
+  registered: count(r[EVENT_FIELDS.registered]),
+  registrations: count(r[EVENT_FIELDS.registrations]),
 });
 
 const normalizeAttendee = (a) => ({

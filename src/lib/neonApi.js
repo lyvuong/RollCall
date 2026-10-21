@@ -57,18 +57,19 @@ const CANCELLED = /cancel|fail|refund|declin/i;
  * Registered names for one Neon event: [{attendeeId, accountId, name}]. Cancelled or failed registrations are
  * left out. Throws when Neon is unreachable.
  */
-export async function fetchNeonRegistrants(neonEventId) {
+export async function fetchNeonRegistrants(neonEventId, { force = false } = {}) {
   const memo = REG_MEMO.get(String(neonEventId));
-  if (memo && Date.now() - memo.at < FRESH_MS) return memo.list;
-  const list = await loadRegistrants(neonEventId);
+  if (!force && memo && Date.now() - memo.at < FRESH_MS) return memo.list;
+  const list = await loadRegistrants(neonEventId, force);
   REG_MEMO.set(String(neonEventId), { list, at: Date.now() });
   return list;
 }
 
 const REG_MEMO = new Map(); // neonEventId -> {list, at}, for this page session
 
-async function loadRegistrants(neonEventId) {
-  const { attendees } = await neonApi(`events/${encodeURIComponent(neonEventId)}/attendees`);
+async function loadRegistrants(neonEventId, force = false) {
+  // A throwaway query string makes the worker skip its shared 5-minute cache for this one call.
+  const { attendees } = await neonApi(`events/${encodeURIComponent(neonEventId)}/attendees${force ? `?fresh=${Date.now()}` : ''}`);
   const seen = new Set();
   return (attendees || []).filter((a) => {
     if (!a.name || !a.attendeeId || seen.has(a.attendeeId) || CANCELLED.test(a.status || '')) return false;
