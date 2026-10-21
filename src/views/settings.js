@@ -458,13 +458,13 @@ export function settingsView(root, ctx) {
       }
     };
     const memberTag = (m) =>
-      `<span class="tag" data-id="${esc(m.id)}">${icon('user')}<span class="tname" title="${esc(m.email || '')}">${esc(m.name || m.email || m.id)}</span>${
+      `<span class="tag" data-id="${esc(m.id)}">${icon(m.role === 'staff' ? 'shield' : m.role === 'volunteer' ? 'heart' : 'user')}<span class="tname" title="${esc(m.email || '')}">${esc(m.name || m.email || m.id)}</span>${
         m.id === ctx.user.uid
           ? '<small class="muted">you</small>'
           : `<button type="button" class="mb del" data-act="del" aria-label="Revoke access" title="Revoke access">${icon('x')}</button>`
       }${['staff', 'volunteer']
         .filter((r) => r !== m.role)
-        .map((r) => `<button type="button" class="mb" data-act="role" data-r="${r}" aria-label="Make ${ROLES[r]}" title="Make ${ROLES[r]}">${icon(r === 'staff' ? 'shield' : 'heart')}</button>`)
+        .map((r) => `<button type="button" class="mb" data-act="role" data-r="${r}" aria-label="Make ${ROLES[r]}" title="Make ${ROLES[r]}">${icon('swap')}</button>`)
         .join('')}</span>`;
     const renderMembers = () => {
       const group = (title, rows) =>
