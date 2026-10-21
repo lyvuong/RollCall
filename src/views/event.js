@@ -1,6 +1,7 @@
 import {
   watchEvent,
   watchLocations,
+  createLocation,
   createEvent,
   updateEvent,
   deleteEvent,
@@ -8,8 +9,10 @@ import {
 } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
+import { matchLocation } from '../lib/locations.js';
 import { ymd, eventHours, countRoles, totalVolunteerHours, personKind, roleOf, needsVolunteers, formatHours, formatTime } from '../lib/time.js';
 
+const NEW_LOC = '__new__';
 const FORMAT_LABEL = { virtual: 'Virtual', 'in-person': 'In person', both: 'Hybrid' };
 const KIND_LABEL = { osg: 'OSG member', community: 'Community' };
 const KIND_ICON = { osg: icon('star'), community: icon('users') };
@@ -23,6 +26,7 @@ export function eventView(root, _ctx, eventId) {
   let locations = [];
   let formReady = false;
   let locationId = '';
+  let addingLocation = false; // "+ New location…" chosen: the typed name is saved with the event
   let template = null; // past event chosen from suggestions
   let recent = []; // distinct past events, newest first
   let suggestions = [];
@@ -64,6 +68,7 @@ export function eventView(root, _ctx, eventId) {
         </label>
         <label class="field" id="locWrap"><span class="lbl">${icon('pin')} Location</span>
           <select id="location" class="input"></select>
+          <input id="newLocation" class="input" maxlength="80" placeholder="New location name" aria-label="New location name" hidden />
         </label>
         </div>
         <div class="actions">
@@ -87,13 +92,16 @@ export function eventView(root, _ctx, eventId) {
     const sel = $('#location', root);
     sel.innerHTML =
       `<option value="">— Select —</option>` +
-      locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('');
-    sel.value = locationId;
-    if (sel.value !== locationId) sel.value = '';
+      locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('') +
+      `<option value="${NEW_LOC}">+ New location…</option>`;
+    sel.value = addingLocation ? NEW_LOC : locationId;
+    if (sel.value !== (addingLocation ? NEW_LOC : locationId)) sel.value = '';
   }
 
   function syncLocationVisibility() {
-    $('#locWrap', root).hidden = $('#format', root).value === 'virtual';
+    const virtual = $('#format', root).value === 'virtual';
+    $('#locWrap', root).hidden = virtual;
+    $('#newLocation', root).required = addingLocation && !virtual; // a hidden required field would block saving
   }
 
   function fillForm(e) {
@@ -104,6 +112,8 @@ export function eventView(root, _ctx, eventId) {
     $('#end', root).value = e.endTime;
     $('#format', root).value = e.format;
     locationId = e.locationId || '';
+    addingLocation = false;
+    $('#newLocation', root).hidden = true;
     renderLocations();
     syncLocationVisibility();
     if (!isNew) $('#title', root).textContent = e.name;
@@ -115,7 +125,14 @@ export function eventView(root, _ctx, eventId) {
   }
 
   $('#format', root).onchange = syncLocationVisibility;
-  $('#location', root).onchange = (ev) => (locationId = ev.target.value);
+  $('#location', root).onchange = (ev) => {
+    addingLocation = ev.target.value === NEW_LOC;
+    locationId = addingLocation ? '' : ev.target.value;
+    const input = $('#newLocation', root);
+    input.hidden = !addingLocation;
+    syncLocationVisibility();
+    if (addingLocation) input.focus();
+  };
 
   f.onsubmit = (ev) => {
     ev.preventDefault();
@@ -129,6 +146,17 @@ export function eventView(root, _ctx, eventId) {
     };
     data.locationId = data.format === 'virtual' ? null : locationId || null;
     if (data.endTime <= data.startTime) return toast('End time must be after start time.');
+    // A typed new location joins the saved list (reusing a look-alike that already exists instead of duplicating it).
+    const typed = $('#newLocation', root).value.trim();
+    if (addingLocation && data.format !== 'virtual' && typed) {
+      const known = matchLocation(locations, typed);
+      if (known) data.locationId = known.id;
+      else {
+        const loc = createLocation(typed);
+        loc.done.catch(() => toast('Could not save the new location.'));
+        data.locationId = loc.id;
+      }
+    }
 
     if (isNew) {
       const copy = template && $('#copyAttendees', root)?.checked;
@@ -213,6 +241,8 @@ export function eventView(root, _ctx, eventId) {
     $('#end', root).value = e.endTime;
     $('#format', root).value = e.format;
     locationId = e.locationId || '';
+    addingLocation = false;
+    $('#newLocation', root).hidden = true;
     renderLocations();
     syncLocationVisibility();
     closeSuggestions();

@@ -346,6 +346,30 @@ export function watchLocations(cb) {
 }
 
 export const addLocation = (name) => addDoc(collection(db, 'locations'), { name: name.trim() });
+
+/** Like addLocation, but the id is known at once so a new event can point at it before the write finishes. */
+export function createLocation(name) {
+  const ref = doc(collection(db, 'locations'));
+  return { id: ref.id, done: setDoc(ref, { name: name.trim() }) };
+}
+
+/**
+ * Fold duplicate locations into one: events pointing at any of mergeIds are re-pointed at keepId, then the other
+ * location docs are deleted. Returns the number of events rewritten.
+ */
+export async function mergeLocations(keepId, mergeIds) {
+  const gone = mergeIds.filter((id) => id !== keepId);
+  const hits = (await Promise.all(gone.map((id) => getDocs(query(collection(db, 'events'), where('locationId', '==', id)))))).flatMap((s) => s.docs);
+  for (let i = 0; i < hits.length; i += 400) {
+    const batch = writeBatch(db);
+    for (const d of hits.slice(i, i + 400)) batch.update(d.ref, { locationId: keepId });
+    await batch.commit();
+  }
+  const batch = writeBatch(db);
+  for (const id of gone) batch.delete(doc(db, 'locations', id));
+  await batch.commit();
+  return hits.length;
+}
 export const renameLocation = (id, name) => updateDoc(doc(db, 'locations', id), { name: name.trim() });
 export const deleteLocation = (id) => deleteDoc(doc(db, 'locations', id));
 
