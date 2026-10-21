@@ -5,6 +5,7 @@
 //   GET  /api/neon/events/:id/attendees         attendees with markedAttended (check-in) state
 //   POST /api/neon/accounts/search              {name?, email?} -> candidate accounts
 //   GET  /api/neon/events/:id/sync              fresh event details + attendees (never cached), for sync checks
+//   POST /api/neon/events                       {name, date, startTime, endTime, endDate?, location?} -> creates an unpublished event
 //   PATCH /api/neon/events/:id                  {name?, date?, endDate?, startTime?, endTime?, location?} -> event
 //   PATCH /api/neon/registrations/:id/attendance {attendeeId, attended} -> sets markedAttended
 //   POST /api/neon/events/:id/registrations     {accountId?, registrantAccountId?, firstName, lastName, attended?} -> registers a walk-in (no accountId = guest, filed under registrantAccountId)
@@ -255,6 +256,35 @@ async function handleNeonUncached(request, url, env) {
       listAll(env, `/events/${sync[1]}/attendees`, 'attendees'),
     ]);
     return json({ event: normalizeEventDetail(event), attendees: attendees.map(normalizeAttendee), canWrite: canWrite(env) });
+  }
+
+  if (pathname === '/api/neon/events' && method === 'POST') {
+    if (!canWrite(env)) return json({ error: 'Sending to the OSG Website is turned off for this site' }, 403);
+    const body = await readJson(request);
+    if (!body) return json({ error: 'invalid JSON' }, 400);
+    const bad = validateEventPatch(body) || (!body.name || !body.date || !body.startTime || !body.endTime ? 'name, date, startTime and endTime required' : '');
+    if (bad) return json({ error: bad }, 400);
+    // A bare, unpublished, free event with no public registration form: it exists so a RollCall roll can be filed under it.
+    const res = await neonFetch(env, '/events', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: body.name.trim(),
+        eventDates: {
+          startDate: body.date,
+          endDate: body.endDate || body.date,
+          startTime: toNeonTime(body.startTime),
+          endTime: toNeonTime(body.endTime),
+          timeZone: { id: '1' }, // Eastern Time - New York
+        },
+        ...(body.location ? { location: { name: body.location.trim() } } : {}),
+        financialSettings: { feeType: 'Free' },
+        publishEvent: false,
+        enableEventRegistrationForm: false,
+        createAccountsforAttendees: false,
+      }),
+    });
+    await bumpEpoch();
+    return json({ ok: true, neonEventId: String(res?.id ?? '') });
   }
 
   const evWrite = /^\/api\/neon\/events\/(\d{1,12})$/.exec(pathname);

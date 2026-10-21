@@ -4,6 +4,7 @@ import { fetchNeonRegistrants } from '../lib/neonApi.js';
 import { registrantUpdates, isImminent } from '../lib/neon.js';
 import { icon } from '../lib/icons.js';
 import { mountNeonSync } from './neonSync.js';
+import { renderMergeSlot } from './neonMerge.js';
 import { rosterMap, fixedRole as fixedRoleIn } from '../lib/roster.js';
 import { ymd, countRoles, personKind, roleOf, formatDay, eventHours, formatHours, totalVolunteerHours } from '../lib/time.js';
 
@@ -82,7 +83,7 @@ export function participantsView(root, ctx, eventId) {
     <section class="bar">
       <a class="btn ghost" href="#/">${icon('back')} Events</a>
       <span class="bar-actions">
-        <span id="syncSlot" class="sync-slot"></span>
+        <span class="sync-slot"><span id="mergeSlot"></span><span id="syncSlot"></span></span>
         <a class="btn ghost" href="#/event/${esc(eventId)}">${icon('edit')} Event details</a>
       </span>
     </section>
@@ -377,6 +378,7 @@ export function participantsView(root, ctx, eventId) {
   };
 
   let locations = [];
+  const renderMerge = () => renderMergeSlot($('#mergeSlot', root), event, locations.find((l) => l.id === event?.locationId)?.name || '');
   const sync = mountNeonSync($('#syncSlot', root), {
     getEvent: () => event,
     getLocationName: () => locations.find((l) => l.id === event?.locationId)?.name || '',
@@ -385,6 +387,7 @@ export function participantsView(root, ctx, eventId) {
   unsubs.push(
     watchLocations((rows) => {
       locations = rows;
+      renderMerge();
       sync.update();
     }),
     watchPeople((rows) => {
@@ -399,6 +402,7 @@ export function participantsView(root, ctx, eventId) {
     watchEvent(eventId, (e) => {
       event = e;
       render();
+      renderMerge();
       sync.update();
     }),
   );

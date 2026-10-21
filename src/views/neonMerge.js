@@ -4,6 +4,7 @@ import {
   fetchNeonSync,
   searchNeonAccounts,
   createNeonRegistration,
+  createNeonEvent,
   searchNeonAccountsByEmail,
   pushNeonSync,
   forgetNeonCache,
@@ -17,13 +18,31 @@ import { icon } from '../lib/icons.js';
 import { addDays, formatDay, formatTime } from '../lib/time.js';
 
 const ACCOUNT_LOOKUPS_AT_ONCE = 3;
+
+/**
+ * Fill `slot` with the "Find on OSG" button for a RollCall-only event (it may already exist on the OSG Website),
+ * or the Duplicate badge once its roll was moved. Empty for new or already-linked events.
+ */
+export function renderMergeSlot(slot, event, locationName = '') {
+  if (!slot) return;
+  if (!event || event.neonEventId) {
+    slot.innerHTML = '';
+    return;
+  }
+  if (event.duplicateOf) {
+    slot.innerHTML = `<a class="badge unsynced" href="#/event/${esc(event.duplicateOf)}" title="Its roll was moved to the original event. Tap to open it. You can delete this one.">${icon('copy')}<span class="wide">Duplicate</span></a>`;
+    return;
+  }
+  slot.innerHTML = `<button type="button" class="btn small" id="mergeBtn" title="Is this event already on the OSG Website? Find it and merge" aria-label="Find this event on the OSG Website and merge">${icon('swap')}<span class="wide">Find on OSG</span></button>`;
+  slot.querySelector('#mergeBtn').onclick = () => openMergeDialog({ event, locationName });
+}
 const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 
 /**
  * Merge a RollCall event into the event that already exists on the OSG Website.
  * Staff pick the matching OSG event, review what will change, and confirm. The OSG details win; the roll stays.
  * People on the roll who are registered there are marked Here; the others are registered (needs their OSG
- * account) and marked Here. Volunteers are left out unless ticked.
+ * account) and marked Here. Everyone on the roll is ticked by default; untick anyone to leave them out.
  *   event  the RollCall event ({id, name, date, startTime, endTime, attendees, ...})
  *   locationName  its place, for matching
  */
@@ -119,12 +138,34 @@ export function openMergeDialog({ event, locationName = '' }) {
               ? ''
               : `<p>No similar event found on the OSG Website for ${esc(formatDay(event.date))}.</p>`
       }
-      <div class="actions">${close}</div>`);
+      ${
+        candidates && info?.canWrite !== false
+          ? `<p class="muted tiny">Not on the OSG Website yet?</p><div class="actions"><button class="btn" type="button" id="create">${icon('send')} Create it on the OSG Website</button>${close}</div>`
+          : `<div class="actions">${close}</div>`
+      }`);
+    const create = dlg.querySelector('#create');
+    if (create) create.onclick = createOnOsg;
     dlg.querySelectorAll('.cand[data-i]').forEach((b) => (b.onclick = () => pick(candidates[+b.dataset.i].neon)));
     dlg.querySelectorAll('.cand[data-move]').forEach((b) => {
       const c = alsoInRollCall[+b.dataset.move];
       b.onclick = () => pick(c.neon, c.local);
     });
+  }
+
+  /** Make an unpublished event on the OSG Website from this one, then carry on as if it had been picked. */
+  async function createOnOsg() {
+    const when = `${formatDay(event.date)}, ${formatTime(event.startTime)} – ${formatTime(event.endTime)}`;
+    const where = info?.sandbox ? 'the OSG Website SANDBOX' : 'the live OSG Website';
+    if (!confirm(`Create "${event.name}" (${when}) on ${where}? It is not published and has no sign-up form.`)) return;
+    const btn = dlg.querySelector('#create');
+    btn.disabled = true;
+    try {
+      const neonEventId = await createNeonEvent({ name: event.name, date: event.date, startTime: event.startTime, endTime: event.endTime, location: locationName });
+      await pick({ neonEventId });
+    } catch (e) {
+      error = `Could not create the event: ${friendlyNeonReason(e.message)}`;
+      render();
+    }
   }
 
   /* ----- step 2: review ----- */
@@ -138,7 +179,7 @@ export function openMergeDialog({ event, locationName = '' }) {
     render();
     try {
       snap = await fetchNeonSync(n.neonEventId);
-      rows = matchParticipants(event.attendees, snap.attendees).map((r) => ({ ...r, include: r.role !== 'volunteer', accounts: null, choice: null }));
+      rows = matchParticipants(event.attendees, snap.attendees).map((r) => ({ ...r, include: true, accounts: null, choice: null }));
       render();
       await lookUpAccounts();
     } catch {
@@ -178,10 +219,10 @@ export function openMergeDialog({ event, locationName = '' }) {
     let what;
     if (r.attendee) what = `<span class="ok-text">${icon('check')} Registered, will be marked Here</span>`;
     else if (r.accounts === null) what = '<span class="muted">Looking up the OSG account…</span>';
-    else if (!r.accounts.length) what = staffAccount ? `No OSG account with this name. Will register as a <b>Guest</b> (${esc(r.name)}) under your OSG account and mark Here` : `<span class="warn-text">${icon('alert')} No OSG account with this name, and none found for your sign-in email, so not registered</span>`;
-    else if (r.accounts.length === 1) what = `Not registered. Will register <b>${esc(r.accounts[0].name)}</b> and mark Here`;
+    else if (!r.accounts.length) what = staffAccount ? 'No OSG account · added as a <b>Guest</b>' : `<span class="warn-text">${icon('alert')} No OSG account, and none found for your sign-in email, so not added</span>`;
+    else if (r.accounts.length === 1) what = `OSG account: <b>${esc(r.accounts[0].name)}</b>`;
     else
-      what = `Not registered. Register as <select data-i="${i}" class="input small" aria-label="OSG account for ${esc(r.name)}"><option value="">Choose the account…</option>${r.accounts
+      what = `OSG account: <select data-i="${i}" class="input small"${r.include ? '' : ' disabled title="Tick this person to choose an account"'} aria-label="OSG account for ${esc(r.name)}"><option value="">Choose the account…</option>${r.accounts
         .map((a) => `<option value="${esc(a.accountId)}"${r.choice === a.accountId ? ' selected' : ''}>${esc(a.name)}${a.email ? ` (${esc(a.email)})` : ''}</option>`)
         .join('')}</select>`;
     const disabled = !r.attendee && r.accounts !== null && !r.accounts.length && !staffAccount;
@@ -221,7 +262,15 @@ export function openMergeDialog({ event, locationName = '' }) {
       }
       <h3>Participants (${rows.length})</h3>
       ${rows.length ? `<ul class="plist merge-list">${rows.map(personRow).join('')}</ul>` : '<p class="muted">Nobody is on the roll yet.</p>'}
-      ${stuck.length ? `<p class="notice warn">${icon('alert')} <span>${stuck.length} ticked ${stuck.length === 1 ? 'person has' : 'people have'} no account chosen and will be left out.</span></p>` : ''}
+      ${(() => {
+        const pick = stuck.filter((r) => r.accounts?.length > 1);
+        const wait = stuck.filter((r) => r.accounts === null);
+        const names = (l) => l.map((r) => esc(r.name)).join(', ');
+        return [
+          pick.length ? `<p class="notice warn">${icon('alert')} <span>Choose an OSG account for ${names(pick)}, or untick. Otherwise they are skipped.</span></p>` : '',
+          wait.length ? `<p class="notice warn">${icon('alert')} <span>Still looking up accounts for ${names(wait)}. Wait, or they are skipped.</span></p>` : '',
+        ].join('');
+      })()}
       ${writable ? '' : `<p class="notice warn">${icon('alert')} <span>Sending to the OSG Website is turned off on this site.</span></p>`}
       ${error ? `<p class="notice warn">${icon('alert')} <span>${esc(error)}</span></p>` : ''}
       <div class="actions">

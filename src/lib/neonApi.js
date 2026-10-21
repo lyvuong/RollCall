@@ -152,6 +152,13 @@ export async function pushNeonSync(neonEventId, plan, neonEvent) {
   return { sent, failed };
 }
 
+/** Create an unpublished event on the OSG Website for a RollCall-only event: resolves the new event's id. */
+export async function createNeonEvent({ name, date, startTime, endTime, location }) {
+  const { neonEventId } = await neonApi('events', postJson({ name, date, startTime, endTime, ...(location ? { location } : {}) }));
+  forgetNeonCache();
+  return neonEventId;
+}
+
 const postJson = (body) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 /** OSG Website accounts with this email: [{accountId, ...}] (the signed-in staff member, who files guest registrations). */

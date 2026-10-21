@@ -9,7 +9,7 @@ import {
 } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { mountNeonSync } from './neonSync.js';
-import { openMergeDialog } from './neonMerge.js';
+import { renderMergeSlot } from './neonMerge.js';
 import { icon } from '../lib/icons.js';
 import { matchLocation } from '../lib/locations.js';
 import { ymd, eventHours, countRoles, totalVolunteerHours, personKind, roleOf, needsVolunteers, formatHours, formatTime } from '../lib/time.js';
@@ -322,22 +322,8 @@ export function eventView(root, _ctx, eventId) {
 
   /* ----- subscriptions ----- */
 
-  /** Offer "Find on OSG" for a RollCall-only event: it may already exist on the OSG Website. */
-  function renderMerge() {
-    const slot = $('#mergeSlot', root);
-    if (!slot) return;
-    if (isNew || !event || event.neonEventId) {
-      slot.innerHTML = '';
-      return;
-    }
-    if (event.duplicateOf) {
-      slot.innerHTML = `<a class="badge unsynced" href="#/event/${esc(event.duplicateOf)}" title="Its roll was moved to the original event. Tap to open it. You can delete this one.">${icon('copy')}<span class="wide">Duplicate</span></a>`;
-      return;
-    }
-    slot.innerHTML = `<button type="button" class="btn small" id="mergeBtn" title="Is this event already on the OSG Website? Find it and merge" aria-label="Find this event on the OSG Website and merge">${icon('swap')}<span class="wide">Find on OSG</span></button>`;
-    $('#mergeBtn', root).onclick = () =>
-      openMergeDialog({ event, locationName: locations.find((l) => l.id === event.locationId)?.name || '' });
-  }
+  const renderMerge = () =>
+    renderMergeSlot($('#mergeSlot', root), isNew ? null : event, locations.find((l) => l.id === event?.locationId)?.name || '');
 
   const sync = isNew
     ? null
