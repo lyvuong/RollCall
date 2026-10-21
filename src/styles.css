@@ -552,6 +552,11 @@ button.badge.neon-import:disabled { opacity: .6; cursor: wait; }
 /* Neon registrants: the chosen answer is filled in */
 .prow .btn.small.danger[aria-pressed="true"] { background: var(--rose-bg); color: var(--rose-ink); border-color: transparent; }
 .pill.reg { background: var(--mint-bg); color: var(--mint-ink); }
+.count { font-size: .85rem; font-weight: 600; color: var(--muted); }
+.info-btn { display: inline-flex; border: 0; background: none; padding: 2px; color: var(--muted); cursor: pointer; border-radius: 50%; }
+.info-btn .i { width: 18px; height: 18px; }
+.info-btn[aria-expanded="true"] { color: var(--primary-ink); }
+.tag.more { padding: 4px 12px; font-weight: 700; color: var(--muted); cursor: pointer; font-family: inherit; }
 .locdups { margin: 8px 0; }
 .locdups p { margin: 0 0 6px; }
 .locdup { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }

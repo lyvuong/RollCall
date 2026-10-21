@@ -57,7 +57,7 @@ export function settingsView(root, ctx) {
     </section>
 
     <section class="card">
-      <h2>${icon('pin')} Locations</h2>
+      <h2>${icon('pin')} Locations <span class="count" id="locCount"></span></h2>
       <div id="locs" class="tags"></div>
       <div id="locDups" class="locdups" aria-live="polite"></div>
       <form id="locMergeBar" class="add" hidden>
@@ -72,7 +72,7 @@ export function settingsView(root, ctx) {
     </section>
 
     <section class="card">
-      <h2>${icon('users')} Saved Members</h2>
+      <h2>${icon('users')} Saved Members <span class="count" id="pplTotal"></span></h2>
       <div class="inputicon">${icon('search')}
         <input id="peopleSearch" class="input" type="search" placeholder="Search names…" aria-label="Search names" />
       </div>
@@ -98,7 +98,7 @@ export function settingsView(root, ctx) {
       ctx.isAdmin
         ? `
     <section class="card">
-      <h2>${icon('key')} Invitation codes</h2>
+      <h2>${icon('key')} Invitation codes <span class="count" id="invCount"></span></h2>
       <p class="muted">New staff sign in with Google, then enter a code. Expired codes stop working for new joiners.</p>
       <form id="invForm" class="add">
         <input id="invLabel" class="input" placeholder="Label (optional)" maxlength="60" aria-label="Label" />
@@ -115,15 +115,15 @@ export function settingsView(root, ctx) {
       <button class="btn" id="psSync">${icon('userPlus')} Update people from the OSG Website</button>
     </section>
     <section class="card">
-      <h2>${icon('shield')} People who sign in</h2>
+      <h2>${icon('shield')} People who sign in <span class="count" id="memCount"></span></h2>
       <div id="mems"></div>
     </section>`
         : ''
     }
 
     <section class="card">
-      <h2>${icon('user')} My role</h2>
-      <p class="muted">Staff can take part in events but are not volunteers, so their time never counts toward volunteer hours. Volunteers can do both.</p>
+      <h2>${icon('user')} My role <button type="button" class="info-btn" id="roleInfoBtn" aria-expanded="false" aria-controls="roleInfo" aria-label="About roles" title="About roles">${icon('info')}</button></h2>
+      <p class="muted" id="roleInfo" hidden>Staff can take part in events but are not volunteers, so their time never counts toward volunteer hours. Volunteers can do both.</p>
       <div class="seg" id="roleSeg" role="group" aria-label="My role">
         <button type="button" data-r="staff">${icon('shield')} Staff</button>
         <button type="button" data-r="volunteer">${icon('heart')} Volunteer</button>
@@ -135,7 +135,6 @@ export function settingsView(root, ctx) {
       <h2>${icon('user')} Account</h2>
       <p class="muted">${esc(ctx.name || '')} · ${esc(ctx.user.email)}${ctx.isAdmin ? ' · admin' : ''}</p>
       <button class="btn" id="signout">${icon('logout')} Sign out</button>
-      <p class="muted"><small>Version ${esc(__APP_VERSION__)}</small></p>
     </section>`;
 
   /* ----- appearance ----- */
@@ -163,15 +162,25 @@ export function settingsView(root, ctx) {
     $('#locMergeBar', root).querySelector('button[type=submit]').disabled = sel.length < 2;
   };
 
+  const LOCS_SHOWN = 6; // locations listed while collapsed
+  let locsOpen = false;
+
   const renderLocs = () => {
     renderLocMerge();
+    $('#locCount', root).textContent = locations.length ? `(${locations.length})` : '';
+    // Selecting locations to merge shows them all, so a pick is never hidden behind the dots.
+    const showAll = locsOpen || locPicked.size > 0 || locations.length <= LOCS_SHOWN;
     $('#locs', root).innerHTML = locations.length
       ? locations
+          .slice(0, showAll ? undefined : LOCS_SHOWN)
           .map((l) => {
             const on = locPicked.has(l.id);
             return `<span class="tag" data-id="${esc(l.id)}"><button type="button" class="mb sel${on ? ' on' : ''}" data-act="pick" aria-pressed="${on}" aria-label="Select ${esc(l.name)} to merge" title="Select to merge">${icon('check')}</button><button type="button" class="tname" data-act="rename" title="Tap to rename">${esc(l.name)}</button><button type="button" class="mb del" data-act="del" aria-label="Delete ${esc(l.name)}" title="Delete">${icon('x')}</button></span>`;
           })
-          .join('')
+          .join('') +
+        (locations.length > LOCS_SHOWN && !locPicked.size
+          ? `<button type="button" class="tag more" data-act="toggle" aria-expanded="${locsOpen}" aria-label="${locsOpen ? 'Show fewer locations' : `Show all ${locations.length} locations`}" title="${locsOpen ? 'Show fewer' : `Show all ${locations.length}`}">${locsOpen ? 'Show less' : '•••'}</button>`
+          : '')
       : '<span class="muted">No locations yet.</span>';
     const groups = findDuplicateLocations(locations);
     $('#locDups', root).innerHTML = groups.length
@@ -211,6 +220,10 @@ export function settingsView(root, ctx) {
   };
   $('#locs', root).onclick = (ev) => {
     const btn = ev.target.closest('button');
+    if (btn?.dataset.act === 'toggle') {
+      locsOpen = !locsOpen;
+      return renderLocs();
+    }
     const li = ev.target.closest('[data-id]');
     if (!btn || !li) return;
     const loc = locations.find((l) => l.id === li.dataset.id);
@@ -255,6 +268,7 @@ export function settingsView(root, ctx) {
 
   const renderPeople = () => {
     renderMerge();
+    $('#pplTotal', root).textContent = people.length ? `(${people.length})` : '';
     const n = (t) => people.filter((p) => personKind(p.type) === t).length;
     $('#pplCounts', root).innerHTML = `
       <span class="pill mem" title="OSG">${icon('star')}<b>${n('osg')}</b> OSG</span>
@@ -478,6 +492,8 @@ export function settingsView(root, ctx) {
 
     const renderInvites = () => {
       const now = Date.now();
+      const active = invites.filter((i) => i.expiresAt.toDate().getTime() >= now).length;
+      $('#invCount', root).textContent = `(${active} active)`;
       $('#invs', root).innerHTML = invites.length
         ? invites
             .map((i) => {
@@ -532,6 +548,7 @@ export function settingsView(root, ctx) {
         .map((r) => `<button type="button" class="mb" data-act="role" data-r="${r}" aria-label="Make ${ROLES[r]}" title="Make ${ROLES[r]}">${icon('swap')}</button>`)
         .join('')}</span>`;
     const renderMembers = () => {
+      $('#memCount', root).textContent = members.length ? `(${members.length})` : '';
       const group = (title, rows) =>
         rows.length ? `<h3>${title} (${rows.length})</h3><div class="tags">${rows.map(memberTag).join('')}</div>` : '';
       $('#mems', root).innerHTML = members.length
@@ -601,6 +618,12 @@ export function settingsView(root, ctx) {
   const renderRole = () => {
     for (const b of $('#roleSeg', root).querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.r === ctx.role));
     $('#roleNote', root).textContent = ctx.role ? `You are signed in as ${ROLES[ctx.role]}.` : 'Choose one so events count your time correctly.';
+  };
+  $('#roleInfoBtn', root).onclick = () => {
+    const btn = $('#roleInfoBtn', root);
+    const open = btn.getAttribute('aria-expanded') !== 'true';
+    btn.setAttribute('aria-expanded', String(open));
+    $('#roleInfo', root).hidden = !open;
   };
   $('#roleSeg', root).onclick = (ev) => {
     const r = ev.target.closest('button')?.dataset.r;
