@@ -457,8 +457,33 @@ export function homeView(root, _ctx) {
   const appbar = document.querySelector('.appbar');
   if (appbar) root.style.setProperty('--ab', `${appbar.offsetHeight}px`);
   $('#fix', root).onclick = () => ((fixOnly = !fixOnly), subscribe(), setFilterOpen(false));
-  from.onchange = () => ((range = { ...range, from: from.value }), saveRange(range), subscribe());
-  to.onchange = () => ((range = { ...range, to: to.value }), saveRange(range), subscribe(), setFilterOpen(false));
+  // Setting the start date waits for the end date: nothing is loaded until To is set, or the user leaves the date fields.
+  let endPending = false;
+  const applyDates = () => {
+    endPending = false;
+    if (!from.value || !to.value) return;
+    range = { from: from.value, to: to.value };
+    saveRange(range);
+    subscribe();
+    setFilterOpen(false);
+  };
+  from.onchange = () => {
+    if (!from.value) return;
+    endPending = true;
+    if (!to.value || to.value < from.value) to.value = from.value; // the end picker opens on the start date
+    to.focus();
+    try {
+      to.showPicker?.();
+    } catch {
+      /* the browser wants a real click for the picker; the field is focused for typing */
+    }
+  };
+  to.onchange = applyDates;
+  $('#fBody', root).addEventListener('focusout', () =>
+    setTimeout(() => {
+      if (endPending && !$('#fBody', root)?.contains(document.activeElement)) applyDates();
+    }, 300),
+  );
   $('#chips', root).onclick = (ev) => {
     const b = ev.target.closest('[data-p]');
     if (!b) return;

@@ -1,4 +1,4 @@
-import { addPerson, markRegistrant, saveRegistrants, setNeonSeen } from '../data.js';
+import { addPerson, markRegistrant, saveRegistrants, setNeonSeen, setAttendance } from '../data.js';
 import { neonReconcile } from './neon.js';
 import { toast } from './dom.js';
 import { ymd } from './time.js';
@@ -14,13 +14,42 @@ import { ymd } from './time.js';
  * Returns reconcile(attendeesFromNeon); calling it again with the same outcome does nothing. reconcile.again() repeats it
  * on the latest list: call it when the saved people arrive after the check did.
  */
+const nameKey = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
 export function makeReconciler({ eventId, getEvent, getPeople, skip = () => false }) {
   let last = '';
   let latest = null;
+  // Writes are applied locally at once but the page only hears about them a moment later, so a second check can still see
+  // the old data. These remember what this page already did so it is never done twice (that made duplicate roll entries).
+  const pulled = new Set(); // registrant keys already brought onto the roll
+  const created = new Map(); // lower-case name -> person made here
+  const droppedDupes = new Set(); // roll entries already removed as duplicates
+  /** The same name twice on one roll is never right (and the OSG match goes by name): keep one, drop the rest. */
+  function dropDuplicateRoll(event) {
+    const byName = new Map();
+    for (const [id, a] of Object.entries(event.attendees || {})) {
+      const k = nameKey(a.name);
+      const keep = Object.values(event.registrants || {}).some((r) => r.personId === id);
+      const list = byName.get(k) || [];
+      list.push({ id, a, keep });
+      byName.set(k, list);
+    }
+    for (const list of byName.values()) {
+      if (list.length < 2) continue;
+      const first = list.find((x) => x.keep) || list[0];
+      for (const x of list) {
+        if (x === first || droppedDupes.has(x.id)) continue;
+        droppedDupes.add(x.id);
+        setAttendance(eventId, { id: x.id, ...x.a }, false).catch(() => {});
+      }
+    }
+  }
+
   function reconcile(list) {
     latest = list || latest;
     const event = getEvent();
     if (!event?.neonEventId || !list) return;
+    dropDuplicateRoll(event);
     const ops = neonReconcile(event, list, ymd()).filter((o) => !skip(o.key));
     const sig = JSON.stringify(ops);
     if (!ops.length || sig === last) return;
@@ -45,14 +74,17 @@ export function makeReconciler({ eventId, getEvent, getPeople, skip = () => fals
       return;
     }
     for (const o of pulls) {
+      if (pulled.has(o.key)) continue;
+      pulled.add(o.key);
       const r = event.registrants?.[o.key] || adds[o.key] || { name: o.name };
       const same = (x) => x.name.toLowerCase() === o.name.toLowerCase();
       const there = Object.entries(event.attendees || {}).find(([, a]) => same(a));
-      let person = there ? { id: there[0], name: there[1].name, alreadyThere: true } : people.find(same);
+      let person = there ? { id: there[0], name: there[1].name, alreadyThere: true } : people.find(same) || created.get(nameKey(o.name));
       if (!person) {
-        const created = addPerson(o.name, 'community');
-        created.done.catch(() => {});
-        person = created.person;
+        const made = addPerson(o.name, 'community');
+        made.done.catch(() => {});
+        person = made.person;
+        created.set(nameKey(o.name), person);
       }
       markRegistrant(eventId, { key: o.key, ...r }, 'present', person).catch(() => {});
       setNeonSeen(eventId, { [o.key]: true }).catch(() => {});
