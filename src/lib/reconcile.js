@@ -2,6 +2,7 @@ import { addPerson, markRegistrant, saveRegistrants, setNeonSeen, setAttendance 
 import { neonReconcile } from './neon.js';
 import { toast } from './dom.js';
 import { ymd } from './time.js';
+import { neonInfo } from './neonApi.js';
 
 /**
  * Bring an event's registered list in line with what the OSG Website just said (see neonReconcile): rows for new
@@ -11,7 +12,8 @@ import { ymd } from './time.js';
  *   getEvent()      the current local event
  *   getPeople()     { people, loaded } the saved people (adding someone to the roll waits until they are known)
  *   skip(key)       true for a row with an unsaved tap on it, which that tap settles
- * Returns reconcile(attendeesFromNeon); calling it again with the same outcome does nothing. reconcile.again() repeats it
+ * Does nothing unless the deployment allows it (the worker's autoReconcile: always on a sandbox, on a live org only when
+ * NEON_AUTO_RECONCILE=1). Returns reconcile(attendeesFromNeon); calling it again with the same outcome does nothing. reconcile.again() repeats it
  * on the latest list: call it when the saved people arrive after the check did.
  */
 const nameKey = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -24,6 +26,11 @@ export function makeReconciler({ eventId, getEvent, getPeople, skip = () => fals
   const pulled = new Set(); // registrant keys already brought onto the roll
   const created = new Map(); // lower-case name -> person made here
   const droppedDupes = new Set(); // roll entries already removed as duplicates
+  let allowed = null; // null = not known yet
+  neonInfo().then((info) => {
+    allowed = !!info?.autoReconcile;
+    if (allowed) reconcile.again();
+  });
   /** The same name twice on one roll is never right (and the OSG match goes by name): keep one, drop the rest. */
   function dropDuplicateRoll(event) {
     const byName = new Map();
@@ -48,7 +55,7 @@ export function makeReconciler({ eventId, getEvent, getPeople, skip = () => fals
   function reconcile(list) {
     latest = list || latest;
     const event = getEvent();
-    if (!event?.neonEventId || !list) return;
+    if (!event?.neonEventId || !list || allowed !== true) return;
     dropDuplicateRoll(event);
     const ops = neonReconcile(event, list, ymd()).filter((o) => !skip(o.key));
     const sig = JSON.stringify(ops);

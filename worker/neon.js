@@ -125,6 +125,13 @@ const normalizeAttendee = (a) => ({
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/**
+ * Whether the app may change its own (Firestore) records on its own when an event is opened: bring in check-ins made on the
+ * OSG Website, mark the rest Missing, add registered names, drop duplicate roll entries. On for a sandbox org; on a live org
+ * only when NEON_AUTO_RECONCILE=1, so production data is never rewritten until that is chosen.
+ */
+export const autoReconcile = (env) => isSandbox(env) || env.NEON_AUTO_RECONCILE === '1';
+
 /** Writes are allowed on a sandbox org, or anywhere NEON_ALLOW_WRITES=1. */
 export const isSandbox = (env) => /sandbox/i.test(env.NEON_ORG_ID || '');
 export const canWrite = (env) => isSandbox(env) || env.NEON_ALLOW_WRITES === '1';
@@ -211,7 +218,7 @@ async function handleNeonUncached(request, url, env) {
   // Which Neon org this deployment talks to (no Neon call), so the app can flag a sandbox.
   if (pathname === '/api/neon/info' && method === 'GET') {
     const org = env.NEON_ORG_ID || '';
-    return json({ org, sandbox: isSandbox(env), canWrite: canWrite(env) });
+    return json({ org, sandbox: isSandbox(env), canWrite: canWrite(env), autoReconcile: autoReconcile(env) });
   }
 
   if (pathname === '/api/neon/status' && method === 'GET') {

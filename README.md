@@ -151,6 +151,8 @@ The site is hosted on **Cloudflare Pages** with an **R2** bucket for photos.
    | `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` | Build variable | Baked into the bundle at build time. Firebase web config is not secret. |
    | `FIREBASE_PROJECT_ID` | Runtime variable | Used by the API to verify ID tokens. |
    | `NEON_ORG_ID`, `NEON_API_KEY` | Runtime **secret** | Only needed for the Neon One import. |
+   | `NEON_ALLOW_WRITES` | Runtime variable (optional) | `1` lets the app send changes to a live Neon org. Leave it unset until you want that; a sandbox org always allows writes. |
+   | `NEON_AUTO_RECONCILE` | Runtime variable (optional) | `1` lets the app update its own records when an event is opened: bring in check-ins made on the OSG Website, mark the rest Missing on finished events, add registered names, drop duplicate roll entries. Leave it unset on a live org until you have tried it; a sandbox org always has it on. |
 
 5. **Bindings:** add an **R2 bucket binding** named `PHOTOS` (Settings → Bindings).
 6. Every push to the production branch builds and deploys; other branches get preview builds. Production and Preview variables are separate, so set them in both if you test on previews.

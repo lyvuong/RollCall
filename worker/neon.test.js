@@ -36,7 +36,7 @@ beforeEach(() => mockFetch(() => ok({})));
 describe('neon info', () => {
   it('flags a sandbox org without calling Neon', async () => {
     const res = await call('/api/neon/info', {}, { ...env, NEON_ORG_ID: 'ourstompinggroundsandbox' });
-    expect(await res.json()).toEqual({ org: 'ourstompinggroundsandbox', sandbox: true, canWrite: true });
+    expect(await res.json()).toEqual({ org: 'ourstompinggroundsandbox', sandbox: true, canWrite: true, autoReconcile: true });
     expect(neonCalls).toHaveLength(0);
   });
 
@@ -44,6 +44,12 @@ describe('neon info', () => {
     const info = await (await call('/api/neon/info')).json();
     expect(info.sandbox).toBe(false);
     expect(info.canWrite).toBe(false);
+  });
+
+  it('turns automatic record updates on for a live org only when NEON_AUTO_RECONCILE=1, and always for a sandbox', async () => {
+    expect((await (await call('/api/neon/info')).json()).autoReconcile).toBe(false);
+    expect((await (await call('/api/neon/info', {}, { ...env, NEON_AUTO_RECONCILE: '1' })).json()).autoReconcile).toBe(true);
+    expect((await (await call('/api/neon/info', {}, { ...env, NEON_ORG_ID: 'mysandbox' })).json()).autoReconcile).toBe(true);
   });
 
   it('allows writes on a live org only when NEON_ALLOW_WRITES=1', async () => {
