@@ -105,12 +105,12 @@ export async function fetchRegistrantsFor(neonEventIds, onProgress = () => {}, c
 
 /** Drop the browser-side Neon caches (after a write, so the next read is fresh). */
 export function forgetNeonCache() {
+  REG_MEMO.clear();
   try {
     localStorage.removeItem(CACHE_KEY);
   } catch {
     /* storage unavailable */
   }
-  REG_MEMO.clear();
 }
 
 let infoPromise = null;

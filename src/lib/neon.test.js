@@ -341,6 +341,17 @@ describe('neonReconcile', () => {
     ]);
   });
 
+  it('marks the rest Missing once a finished event has reported attendance, never before', () => {
+    const ev = { date: '2026-10-20', attendees: {}, registrants: { 1: { name: 'Ada' }, 2: { name: 'Bo' } } };
+    const list = [att('1', 'Ada', true), att('2', 'Bo', false)];
+    expect(neonReconcile(ev, list, '2026-10-21')).toEqual([
+      { type: 'pull', key: '1', name: 'Ada' },
+      { type: 'miss', key: '2' },
+    ]);
+    expect(neonReconcile(ev, list, '2026-10-20').map((o) => o.type)).toEqual(['pull', 'ack']); // same day: roll still being taken, nobody marked Missing
+    expect(neonReconcile(ev, [att('1', 'Ada', false), att('2', 'Bo', false)], '2026-10-21').filter((o) => o.type === 'miss')).toEqual([]); // nobody reported
+  });
+
   it('adds rows for new registrations: Here when already on the roll, else Unconfirmed (pulled if checked in)', () => {
     const ev = { attendees: { p1: { name: 'Walk In' } }, registrants: {} };
     const ops = neonReconcile(ev, [att('7', 'Walk In', true), att('8', 'New Person', true), att('9', 'Quiet One', false), att('10', 'Gone', false, { status: 'CANCELLED' })]);

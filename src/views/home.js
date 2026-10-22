@@ -45,6 +45,27 @@ export const PRESETS = [
 
 // Remembered across navigation within the session.
 const refreshing = new Set(); // registrant refreshes already tried this session (see refreshRegistrants)
+const RANGE_KEY = 'rollcall.range';
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+/** The date range last chosen in this tab (kept across reloads and app updates, not across tabs). */
+function savedRange() {
+  try {
+    const r = JSON.parse(sessionStorage.getItem(RANGE_KEY) || 'null');
+    return r && DAY.test(r.from) && DAY.test(r.to) ? { from: r.from, to: r.to } : null;
+  } catch {
+    return null;
+  }
+}
+/** Remember a range the user picked; the default (yesterday to tomorrow) is not remembered, so it keeps following today. */
+const saveRange = (r) => {
+  try {
+    const d = defaultRange();
+    if (r.from === d.from && r.to === d.to) sessionStorage.removeItem(RANGE_KEY);
+    else sessionStorage.setItem(RANGE_KEY, JSON.stringify({ from: r.from, to: r.to }));
+  } catch {
+    /* storage unavailable: the range is still remembered while the page stays open */
+  }
+};
 let range = null;
 const open = new Map(); // expanded event cards: id -> 'all' | 'vol' | 'mem' | 'reg' (which names to list)
 const dayToggled = new Map(); // date -> open?, for day groups the user opened or closed (others use the default)
@@ -54,7 +75,7 @@ const ALL = { from: '2000-01-01', to: '2099-12-31' };
 const defaultRange = () => PRESETS[0].get(ymd());
 
 export function homeView(root, _ctx) {
-  range ||= defaultRange();
+  range ||= savedRange() || defaultRange();
   let events = [];
   let locations = {};
   let photosByEvent = new Map(); // eventId -> photo metadata[]
@@ -229,7 +250,7 @@ export function homeView(root, _ctx) {
       (e) => e.neonEventId && e.date <= ymd() && (Object.keys(e.attendees || {}).length || Object.values(e.registrants || {}).some((r) => (r.status || 'pending') !== 'pending')) && checkinDiff.get(e.id)?.sig !== regSig(e),
     );
     if (!todo.length) return;
-    const { byEvent } = await fetchRegistrantsFor(todo.map((e) => String(e.neonEventId)));
+    const { byEvent } = await fetchRegistrantsFor(todo.map((e) => String(e.neonEventId)), undefined, 4, { force: true });
     if (seq !== neonSeq) return;
     let changed = false;
     for (const e of todo) {
@@ -267,7 +288,7 @@ export function homeView(root, _ctx) {
           <span class="badges">
             ${e.duplicateOf ? `<a class="badge unsynced" href="#/event/${esc(e.duplicateOf)}" title="Duplicate: its roll was moved to the original event. Tap to open the original. You can delete this one." aria-label="${esc(e.name)} is a duplicate. Open the original.">${icon('copy')}<span class="wide">Duplicate</span></a>` : ''}
             ${osgTwin(e) ? `<button type="button" class="badge unsynced merge-hint" data-merge="${esc(e.id)}" title="This may already be on the OSG Website. Tap to find it and merge." aria-label="${esc(e.name)} may already be on the OSG Website. Tap to merge.">${icon('swap')}<span class="wide">On OSG?</span></button>` : ''}
-            ${unsyncedCount(e) ? `<span class="badge unsynced" title="${unsyncedCount(e)} difference${unsyncedCount(e) === 1 ? '' : 's'} from the OSG Website. Open the event to review and send.">${icon('alert')}<span class="wide">Out of sync</span></span>` : ''}
+            ${unsyncedCount(e) ? `<span class="badge unsynced outsync" title="${unsyncedCount(e)} difference${unsyncedCount(e) === 1 ? '' : 's'} from the OSG Website. Open the event to review and send.">${icon('alert')}<span class="wide">Out of sync</span></span>` : ''}
             ${e.neonEventId ? `<span class="badge neon done" title="Imported from the OSG Website">${icon('check')}<span class="wide">OSG</span></span>` : ''}
             <span class="badge ${esc(e.format)}" title="${f.tip}">${icon(f.icon)}<span class="wide">${f.label}</span></span>
           </span>
@@ -436,12 +457,13 @@ export function homeView(root, _ctx) {
   const appbar = document.querySelector('.appbar');
   if (appbar) root.style.setProperty('--ab', `${appbar.offsetHeight}px`);
   $('#fix', root).onclick = () => ((fixOnly = !fixOnly), subscribe(), setFilterOpen(false));
-  from.onchange = () => ((range = { ...range, from: from.value }), subscribe());
-  to.onchange = () => ((range = { ...range, to: to.value }), subscribe(), setFilterOpen(false));
+  from.onchange = () => ((range = { ...range, from: from.value }), saveRange(range), subscribe());
+  to.onchange = () => ((range = { ...range, to: to.value }), saveRange(range), subscribe(), setFilterOpen(false));
   $('#chips', root).onclick = (ev) => {
     const b = ev.target.closest('[data-p]');
     if (!b) return;
     range = PRESETS.find((p) => p.key === b.dataset.p).get(ymd());
+    saveRange(range);
     subscribe();
     setFilterOpen(false);
   };

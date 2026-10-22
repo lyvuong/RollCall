@@ -289,11 +289,13 @@ export function neonSyncPlan(event, neonEvent, attendees, locationName = '') {
  * What RollCall should write down after looking at the OSG Website's attendees, without asking anyone:
  *   {type:'add',  key, entry}   an OSG registration RollCall has no row for yet (already Here when they are on the roll)
  *   {type:'pull', key, name}    checked in on the OSG Website while still Unconfirmed here: becomes Here, joins the roll
+ *   {type:'miss', key}          a finished event where the OSG Website reports attendance and this person is not among those
+ *                               attended: they are Missing, not merely Unconfirmed
  *   {type:'ack',  key, seen}    both sides already agree: remember Neon's value (`neonSeen`)
  * `neonSeen` is what Neon said at the last sync. It is how an attended flag that was set on the OSG Website (pull) is told
  * from one RollCall is about to change (push): the three RollCall states Unconfirmed / Here / Missing map to Neon's two.
  */
-export function neonReconcile(event, attendees) {
+export function neonReconcile(event, attendees, today = '') {
   if (!attendees) return [];
   const regs = event.registrants || {};
   const onRoll = new Set(
@@ -302,6 +304,8 @@ export function neonReconcile(event, attendees) {
       .map((m) => String(m.attendee.attendeeId)),
   );
   const ops = [];
+  // Attendance counts as reported once the day has passed and Neon has anyone marked attended.
+  const reported = !!today && event.date < today && attendees.some((a) => a.markedAttended === true && !isCancelled(a.status));
   for (const a of attendees) {
     const key = String(a.attendeeId || '');
     const name = String(a.name || '').replace(/\s+/g, ' ').trim();
@@ -310,13 +314,15 @@ export function neonReconcile(event, attendees) {
     const r = regs[key];
     if (!r) {
       const here = onRoll.has(key);
-      ops.push({ type: 'add', key, entry: { name, accountId: String(a.accountId || ''), status: here ? 'present' : 'pending', ...(here ? { neonSeen: neon } : {}) } });
+      const missing = !here && !neon && reported;
+      ops.push({ type: 'add', key, entry: { name, accountId: String(a.accountId || ''), status: here ? 'present' : missing ? 'missing' : 'pending', ...(here ? { neonSeen: neon } : missing ? { neonSeen: false } : {}) } });
       if (!here && neon) ops.push({ type: 'pull', key, name });
       continue;
     }
     if (r.cancelled) continue;
     const status = r.status || 'pending';
     if (status === 'pending' && neon && r.neonSeen !== true) ops.push({ type: 'pull', key, name: r.name || name });
+    else if (status === 'pending' && !neon && reported) ops.push({ type: 'miss', key });
     else if (r.neonSeen !== neon && ((status === 'present' && neon) || (status !== 'present' && !neon))) ops.push({ type: 'ack', key, seen: neon });
   }
   return ops;

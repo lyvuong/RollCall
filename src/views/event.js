@@ -6,11 +6,13 @@ import {
   updateEvent,
   deleteEvent,
   fetchRecentEvents,
+  watchPeople,
 } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { mountNeonSync } from './neonSync.js';
 import { renderMergeSlot } from './neonMerge.js';
 import { mountPresence } from '../lib/presence.js';
+import { makeReconciler } from '../lib/reconcile.js';
 import { icon } from '../lib/icons.js';
 import { matchLocation } from '../lib/locations.js';
 import { ymd, eventHours, countRoles, totalVolunteerHours, personKind, roleOf, needsVolunteers, formatHours, formatTime } from '../lib/time.js';
@@ -327,11 +329,16 @@ export function eventView(root, ctx, eventId) {
   const renderMerge = () =>
     renderMergeSlot($('#mergeSlot', root), isNew ? null : event, locations.find((l) => l.id === event?.locationId)?.name || '');
 
+  let people = [];
+  let peopleLoaded = false;
+  // Check-ins made on the OSG Website become Here and join the roll, whichever page of the event is opened (see lib/reconcile.js).
+  const reconcile = isNew ? null : makeReconciler({ eventId, getEvent: () => event, getPeople: () => ({ people, loaded: peopleLoaded }) });
   const sync = isNew
     ? null
     : mountNeonSync($('#syncSlot', root), {
         getEvent: () => event,
         getLocationName: () => locations.find((l) => l.id === event?.locationId)?.name || '',
+        onSnapshot: reconcile,
       });
 
   unsubs.push(
@@ -348,6 +355,13 @@ export function eventView(root, ctx, eventId) {
     showBody();
     nameEl.focus();
   } else {
+    unsubs.push(
+      watchPeople((rows) => {
+        people = rows;
+        peopleLoaded = true;
+        reconcile?.again();
+      }),
+    );
     unsubs.push(
       watchEvent(eventId, (e) => {
         event = e;

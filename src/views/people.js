@@ -1,7 +1,8 @@
 import { watchEvent, watchLocations, watchPeople, setAttendance, setRole, addPerson, markRegistrant, saveRegistrants, setNeonSeen, searchNeonPeople, linkPerson, watchRoster } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { fetchNeonRegistrants } from '../lib/neonApi.js';
-import { registrantUpdates, isImminent, neonReconcile } from '../lib/neon.js';
+import { registrantUpdates, isImminent } from '../lib/neon.js';
+import { makeReconciler } from '../lib/reconcile.js';
 import { icon } from '../lib/icons.js';
 import { mountNeonSync } from './neonSync.js';
 import { renderMergeSlot } from './neonMerge.js';
@@ -25,7 +26,17 @@ export function participantsView(root, ctx, eventId) {
   const regEdits = new Map(); // staged Here / Missing choices for registered names (key -> status), applied on Done
   const addEdits = new Map(); // staged adds from the search box (id 'add:...' -> {name, type, person|neon|isNew}), applied on Done
   let regQ = ''; // filter for a long registered list
-  let lastReconcile = ''; // the writes the last OSG Website check led to, so one check is never applied twice
+  /**
+   * The registered row (not cancelled, not yet Here) that a person found by search stands for: same OSG account, else same
+   * name. Adding that person confirms the row as Here instead of leaving it Unconfirmed beside a roll entry.
+   */
+  const registrantFor = (name, accountId) =>
+    Object.entries(event?.registrants || {}).find(
+      ([key, r]) =>
+        !r.cancelled &&
+        regStatus({ key, ...r }) !== 'present' &&
+        ((accountId && r.accountId && String(r.accountId) === String(accountId)) || r.name.toLowerCase() === String(name).toLowerCase()),
+    );
   /** On the roll (saved, not staged for removal) under this name? */
   /** Roll entries staged to leave: removed by hand, or named on a registered row just set to Missing. */
   const goneIds = () => {
@@ -74,42 +85,8 @@ export function participantsView(root, ctx, eventId) {
   const unsubs = [];
   let regTried = false;
 
-  /**
-   * Bring RollCall's registered list in line with what the OSG Website just said (see neonReconcile): rows for new
-   * registrations, check-ins made there become Here and join the roll, and agreed values are remembered. Written
-   * straight to Firestore, not staged; rows with a pending tap on them are left for that tap to settle.
-   */
-  function reconcile(list) {
-    if (!event?.neonEventId || !list) return;
-    const ops = neonReconcile(event, list).filter((o) => !regEdits.has(o.key));
-    const sig = JSON.stringify(ops);
-    if (!ops.length || sig === lastReconcile) return;
-    lastReconcile = sig;
-    const adds = {};
-    const seen = {};
-    for (const o of ops) {
-      if (o.type === 'add') adds[o.key] = o.entry;
-      else if (o.type === 'ack') seen[o.key] = o.seen;
-    }
-    if (Object.keys(adds).length) saveRegistrants(eventId, adds).catch(() => {});
-    if (Object.keys(seen).length) setNeonSeen(eventId, seen).catch(() => {});
-    const pulls = ops.filter((o) => o.type === 'pull');
-    if (!pulls.length || !peopleLoaded) return; // adding people to the roll waits until the saved people are known
-    for (const o of pulls) {
-      const r = event.registrants?.[o.key] || adds[o.key] || { name: o.name };
-      const same = (x) => x.name.toLowerCase() === o.name.toLowerCase();
-      const there = Object.entries(event.attendees || {}).find(([, a]) => same(a));
-      let person = there ? { id: there[0], name: there[1].name, alreadyThere: true } : people.find(same);
-      if (!person) {
-        const created = addPerson(o.name, 'community');
-        created.done.catch(() => {});
-        person = created.person;
-      }
-      markRegistrant(eventId, { key: o.key, ...r }, 'present', person).catch(() => {});
-      setNeonSeen(eventId, { [o.key]: true }).catch(() => {});
-    }
-    toast(`${pulls.length === 1 ? `${pulls[0].name} was` : `${pulls.length} people were`} checked in on the OSG Website and added to the roll.`);
-  }
+  // Check-ins made on the OSG Website become Here and join the roll (see lib/reconcile.js). Rows with an unsaved tap are left alone.
+  const reconcile = makeReconciler({ eventId, getEvent: () => event, getPeople: () => ({ people, loaded: peopleLoaded }), skip: (key) => regEdits.has(key) });
 
   /**
    * Fetch an event's registered names once when the page opens: for an event with none stored (imported earlier, or
@@ -421,7 +398,7 @@ export function participantsView(root, ctx, eventId) {
           if (there) person = { id: there[0], name: there[1].name, alreadyThere: true };
           else if (known) person = known;
           else {
-            const created = addPerson(r.name, 'community');
+            const created = addPerson(r.name, 'community', r.accountId ? { neonAccountId: r.accountId } : undefined);
             created.done.catch(() => toast('Could not save person.'));
             person = created.person;
           }
@@ -468,14 +445,27 @@ export function participantsView(root, ctx, eventId) {
       render();
     } else if (t.dataset.add) {
       const p = people.find((x) => x.id === t.dataset.add);
-      if (p) {
+      const reg = p && registrantFor(p.name, p.neonAccountId);
+      if (reg) {
+        regEdits.set(reg[0], 'present');
+        toast(`${p.name} will be marked Here when you save`);
+        render();
+      } else if (p) {
         addEdits.set(`add:${p.id}`, { name: p.name, type: p.type, person: p });
         toast(`${p.name} will be added when you save`);
         render();
       }
     } else if (t.dataset.neon) {
       const n = neonHits.find((x) => x.neonAccountId === t.dataset.neon);
-      if (n) {
+      const reg = n && registrantFor(n.name, n.neonAccountId);
+      if (reg) {
+        regEdits.set(reg[0], 'present');
+        toast(`${n.name} will be marked Here when you save`);
+        q = '';
+        neonHits = [];
+        $('#q', root).value = '';
+        render();
+      } else if (n) {
         addEdits.set(`add:n${n.neonAccountId}`, { name: n.name, type: savedFor(n)?.type || 'community', neon: n });
         toast(`${n.name} will be added when you save`);
         q = '';
@@ -486,6 +476,15 @@ export function participantsView(root, ctx, eventId) {
     } else if (t.dataset.new) {
       const name = q.trim().replace(/\s+/g, ' ');
       if (!name) return;
+      const reg = registrantFor(name, '');
+      if (reg) {
+        regEdits.set(reg[0], 'present');
+        toast(`${name} will be marked Here when you save`);
+        q = '';
+        $('#q', root).value = '';
+        render();
+        return;
+      }
       addEdits.set(`add:new:${name.toLowerCase()}`, { name, type: t.dataset.new, isNew: true });
       toast(`${name} will be added when you save`);
       q = '';
@@ -538,6 +537,7 @@ export function participantsView(root, ctx, eventId) {
       people = rows;
       peopleLoaded = true;
       render();
+      reconcile.again();
     }),
     watchRoster((rows) => {
       whoIs = rosterMap(rows);

@@ -66,11 +66,18 @@ export function mountNeonSync(host, { getEvent, getLocationName, onSnapshot }) {
       onSnapshot?.(s.attendees);
       plan = neonSyncPlan(getEvent(), s.event, s.attendees, getLocationName());
       state = plan.inSync ? 'ok' : 'out';
-    } catch {
+    } catch (err) {
       if (mine !== seq) return;
+      console.warn('OSG Website check failed', err);
       state = 'error'; // Neon unreachable or no Worker: stay quiet rather than cry wolf
     }
     renderChip();
+    if (dlg && state === 'ok' && afterSync) {
+      // Opened by review() and now in sync (for instance after "Check again"): carry on to where the user was headed.
+      const next = afterSync;
+      dlg.close();
+      return next();
+    }
     if (dlg) renderDialog();
   }
 
@@ -121,7 +128,9 @@ export function mountNeonSync(host, { getEvent, getLocationName, onSnapshot }) {
       ? `<div class="notice warn">${icon('alert')} <span><b>${failures.length} could not be sent</b> (${esc(failures.slice(0, 5).map((f) => f.name).join(', '))}${failures.length > 5 ? '…' : ''}).<br>${reasons.map(esc).join('<br>')}</span></div>`
       : '';
     const body =
-      state === 'checking' && !plan
+      state === 'error'
+        ? `<p class="notice warn">${icon('alert')} <span>Could not check the OSG Website just now. Your changes are saved in RollCall. Try Check again, or close this and send them later.</span></p>`
+        : state === 'checking' && !plan
         ? '<p class="muted">Checking the OSG Website…</p>'
         : plan?.inSync
           ? `<p>${icon('check')} Everything in RollCall matches the OSG Website.</p>`
@@ -190,7 +199,8 @@ export function mountNeonSync(host, { getEvent, getLocationName, onSnapshot }) {
       for (let wait = 0; state === 'checking' && wait < 50; wait++) await new Promise((r) => setTimeout(r, 200));
       if (signature() === asked) break;
     }
-    if (state !== 'out') return false;
+    // When the check itself failed, stay too: leaving would hide changes that were never compared with the OSG Website.
+    if (state !== 'out' && state !== 'error') return false;
     openDialog();
     afterSync = onSynced;
     return true;

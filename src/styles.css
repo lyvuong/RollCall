@@ -16,6 +16,7 @@
   --sky-bg: #cde8ff;   --sky-ink: #0b58a8;
   --peach-bg: #ffe2a8; --peach-ink: #8a4b00;
   --rose-bg: #ffd0e5;  --rose-ink: #a3195b;
+  --alert-bg: #d4202f; --alert-ink: #ffffff; /* solid red: things that need action now (out of sync) */
   --danger: #d6264f;
   --focus: #6c4cff;
   --shadow: 0 2px 0 rgba(108, 76, 255, .10), 0 10px 24px rgba(108, 76, 255, .10);
@@ -38,6 +39,7 @@
   --sky-bg: #12385e;   --sky-ink: #9fd5ff;
   --peach-bg: #55390f; --peach-ink: #ffd88a;
   --rose-bg: #571c40;  --rose-ink: #ffb0d4;
+  --alert-bg: #ff5c69; --alert-ink: #2a0409;
   --danger: #ff8fa6;
   --focus: #9d86ff;
   --shadow: 0 2px 0 rgba(0, 0, 0, .25), 0 10px 24px rgba(0, 0, 0, .3);
@@ -591,12 +593,13 @@ button.badge.neon-import:disabled { opacity: .6; cursor: wait; }
 }
 .sync-chip .i { width: 1.1em; height: 1.1em; }
 .sync-chip.ok { background: var(--mint-bg); color: var(--mint-ink); }
-.sync-chip.out { background: var(--peach-bg); color: var(--peach-ink); }
+.sync-chip.out { background: var(--alert-bg); color: var(--alert-ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--alert-bg) 28%, transparent); }
 .sync-chip.checking { background: var(--bg-2); color: var(--muted); }
 .sync-chip.checking .i { animation: sync-spin 1s linear infinite; }
 @keyframes sync-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .sync-chip.checking .i { animation: none; } }
 .badge.unsynced { background: var(--peach-bg); color: var(--peach-ink); }
+.badge.unsynced.outsync { background: var(--alert-bg); color: var(--alert-ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--alert-bg) 28%, transparent); }
 .sync-dlg {
   border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text);
   padding: 0; width: min(520px, calc(100vw - 32px)); box-shadow: var(--shadow);
