@@ -152,6 +152,21 @@ export async function fetchLocations() {
   return Object.fromEntries(snap.docs.map((d) => [d.id, d.data().name]));
 }
 
+/* ---------- who else has this event open ---------- */
+
+/** Everyone with a presence doc on the event: [{uid, name, where, at}] (`at` is a Date, or null until the server stamps it). */
+export function watchPresence(eventId, cb) {
+  return onSnapshot(collection(db, 'events', eventId, 'presence'), (snap) =>
+    cb(snap.docs.map((d) => ({ uid: d.id, ...d.data(), at: d.data().at?.toDate?.() || null }))),
+  );
+}
+
+/** Say "I am on this event" (where: 'participants' | 'details'). Called again every few seconds as a heartbeat. */
+export const setPresence = (eventId, uid, name, where) =>
+  setDoc(doc(db, 'events', eventId, 'presence', uid), { name, where, at: serverTimestamp() });
+
+export const clearPresence = (eventId, uid) => deleteDoc(doc(db, 'events', eventId, 'presence', uid));
+
 export function watchEvent(id, cb) {
   return onSnapshot(doc(db, 'events', id), (snap) => cb(snap.exists() ? withId(snap) : null));
 }

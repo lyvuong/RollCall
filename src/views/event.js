@@ -10,6 +10,7 @@ import {
 import { esc, $, toast } from '../lib/dom.js';
 import { mountNeonSync } from './neonSync.js';
 import { renderMergeSlot } from './neonMerge.js';
+import { mountPresence } from '../lib/presence.js';
 import { icon } from '../lib/icons.js';
 import { matchLocation } from '../lib/locations.js';
 import { ymd, eventHours, countRoles, totalVolunteerHours, personKind, roleOf, needsVolunteers, formatHours, formatTime } from '../lib/time.js';
@@ -22,7 +23,7 @@ const initials = (name) =>
   name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
 const tint = (name) => [...name].reduce((a, c) => a + c.charCodeAt(0), 0) % 4;
 
-export function eventView(root, _ctx, eventId) {
+export function eventView(root, ctx, eventId) {
   const isNew = !eventId;
   let event = isNew ? null : undefined; // undefined = loading, null = not found
   let locations = [];
@@ -40,6 +41,7 @@ export function eventView(root, _ctx, eventId) {
       <a class="btn ghost" href="#/">${icon('back')} Events</a>
       <span class="sync-slot"><span id="mergeSlot"></span><span id="syncSlot"></span></span>
     </section>
+    <div id="presence" class="pres-row"></div>
     <h1 id="title" class="evt-title" ${isNew ? '' : 'hidden'}>${isNew ? 'New event' : 'Event'}</h1>
     <p id="state" class="muted">${isNew ? '' : 'Loading…'}</p>
     <div id="body" class="${isNew ? '' : 'evt'}" hidden>
@@ -368,5 +370,8 @@ export function eventView(root, _ctx, eventId) {
     );
   }
 
-  return () => (sync?.destroy(), unsubs.forEach((u) => u()));
+  const stopPresence =
+    !isNew && ctx?.user ? mountPresence($('#presence', root), { eventId, uid: ctx.user.uid, name: (ctx.name || '').trim() || ctx.user.email || 'Someone', where: 'details' }) : () => {};
+
+  return () => (stopPresence(), sync?.destroy(), unsubs.forEach((u) => u()));
 }

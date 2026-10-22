@@ -628,3 +628,11 @@ button.badge { appearance: none; border: 0; font: inherit; cursor: pointer; }
 .merge-row select { max-width: 100%; }
 .ok-text { color: var(--mint-ink); }
 .warn-text { color: var(--peach-ink); }
+
+/* ---------- who else has this event open ---------- */
+.pres-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.pres-row:not(:empty) { margin: 0 0 10px; }
+.pres { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px; border-radius: 999px; background: var(--peach-bg); color: var(--peach-ink); font-size: .85rem; font-weight: 600; }
+.pres .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: pres-pulse 1.6s ease-in-out infinite; }
+@keyframes pres-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .pres .dot { animation: none; } }

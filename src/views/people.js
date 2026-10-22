@@ -5,6 +5,7 @@ import { registrantUpdates, isImminent } from '../lib/neon.js';
 import { icon } from '../lib/icons.js';
 import { mountNeonSync } from './neonSync.js';
 import { renderMergeSlot } from './neonMerge.js';
+import { mountPresence } from '../lib/presence.js';
 import { rosterMap, fixedRole as fixedRoleIn } from '../lib/roster.js';
 import { ymd, countRoles, personKind, roleOf, formatDay, eventHours, formatHours, totalVolunteerHours } from '../lib/time.js';
 
@@ -26,17 +27,29 @@ export function participantsView(root, ctx, eventId) {
   let regQ = ''; // filter for a long registered list
   let neonAttended = new Map(); // registrant key (attendeeId) -> attended on the OSG Website, from the latest sync check
   /** On the roll (saved, not staged for removal) under this name? */
-  const onRoll = (name) => Object.entries(event?.attendees || {}).some(([id, a]) => !removed.has(id) && a.name.toLowerCase() === String(name).toLowerCase());
+  /** Roll entries staged to leave: removed by hand, or named on a registered row just set to Missing. */
+  const goneIds = () => {
+    const leaving = (k, r) => regEdits.get(k) === 'missing' || (regEdits.get(k) === 'pending' && r.status === 'present'); // staged Missing, or un-confirmed Here
+    const missing = new Set(Object.entries(event?.registrants || {}).filter(([k, r]) => leaving(k, r)).map(([, r]) => r.name.toLowerCase()));
+    const out = new Set(removed);
+    for (const [id, a] of Object.entries(event?.attendees || {})) if (missing.has(a.name.toLowerCase())) out.add(id);
+    return out;
+  };
+  const onRollWith = (gone, name) => Object.entries(event?.attendees || {}).some(([id, a]) => !gone.has(id) && a.name.toLowerCase() === String(name).toLowerCase());
+  const onRoll = (name) => onRollWith(goneIds(), name);
   /**
    * The saved status, except: a confirmed Here whose person is no longer on the roll counts as Missing (so the OSG
    * Website gets unchecked), and an unconfirmed name the OSG Website has as attended shows as Here.
    */
   const baseStatus = (r) => {
-    if (r.status === 'present' && !onRoll(r.name)) return 'missing';
+    if (r.status === 'present' && !onRollWith(removed, r.name)) return 'missing'; // by hand only: a staged tap on this row must not change what it is measured against
     if (!r.status || r.status === 'pending') return neonAttended.get(String(r.key)) === true ? 'present' : 'pending';
     return r.status;
   };
   const regStatus = (r) => regEdits.get(r.key) ?? baseStatus(r);
+  /** Attended on the OSG Website, but not confirmed in RollCall (so not on the roll): shown as neither Here nor Missing. */
+  const neonOnly = (r) => !regEdits.has(r.key) && (!r.status || r.status === 'pending') && neonAttended.get(String(r.key)) === true;
+  const shownStatus = (r) => (neonOnly(r) ? 'pending' : regStatus(r));
   /** Known members have a fixed role at every event: a volunteer is always a volunteer, staff always a participant. */
   const fixedRole = (name) => fixedRoleIn(whoIs, name);
   const effRole = (id, a) => fixedRole(a?.name) || roleEdits.get(id) || roleOf(a);
@@ -117,6 +130,7 @@ export function participantsView(root, ctx, eventId) {
         <a class="btn ghost" href="#/event/${esc(eventId)}">${icon('edit')} Event details</a>
       </span>
     </section>
+    <div id="presence" class="pres-row"></div>
     <p id="state" class="muted">Loading…</p>
     <div id="body" hidden>
       <h1 id="title" style="margin-bottom:4px"></h1>
@@ -171,7 +185,8 @@ export function participantsView(root, ctx, eventId) {
     $('#title', root).textContent = event.name;
 
     const mine = myEntryId();
-    const selfOn = selfStaged || (mine && !removed.has(mine));
+    const gone = goneIds();
+    const selfOn = selfStaged || (mine && !gone.has(mine));
     const tog = $('#selfToggle', root);
     if (tog) {
       tog.setAttribute('aria-pressed', String(!!selfOn));
@@ -180,7 +195,7 @@ export function participantsView(root, ctx, eventId) {
     const att = fullAtt();
     const kept = Object.fromEntries(
       Object.entries(att)
-        .filter(([id]) => !removed.has(id))
+        .filter(([id]) => !gone.has(id))
         .map(([id, a]) => [id, { ...a, role: effRole(id, a) }]),
     );
     const { volunteers, participants } = countRoles(kept);
@@ -202,7 +217,7 @@ export function participantsView(root, ctx, eventId) {
     $('#regCard', root).hidden = !regs.length;
     if (regs.length) {
       const live = regs.filter((r) => !r.cancelled);
-      const n = (st) => live.filter((r) => regStatus(r) === st).length;
+      const n = (st) => live.filter((r) => shownStatus(r) === st).length;
       const dropped = regs.length - live.length;
       $('#regTitle', root).innerHTML = `${icon('check')} Registered (${live.length}) <span class="muted tiny">${n('present')} here · ${n('missing')} missing · ${n('pending')} to confirm${dropped ? ` · ${dropped} cancelled` : ''}</span>`;
       const LONG = 12; // lists longer than this get a name filter
@@ -213,11 +228,11 @@ export function participantsView(root, ctx, eventId) {
       const scrolled = list.scrollTop; // re-rendering must not jump the list back to the top
       list.innerHTML = shown
         .map((r) => {
-          const st = regStatus(r);
+          const st = shownStatus(r);
           const nm = esc(r.name);
           const btn = (kind, ic, label, cls) =>
             `<button type="button" class="btn small${st === kind ? ` ${cls}` : ' ghost'}" data-reg="${esc(r.key)}" data-st="${kind}" aria-pressed="${st === kind}" aria-label="${label}: ${nm}" title="${st === kind ? 'Tap to undo' : label}">${icon(ic)}<span class="wide">${label}</span></button>`;
-          return `<li class="prow${r.cancelled ? ' cancelled' : ''}"><span class="nm">${nm}${r.cancelled ? ' <span class="muted tiny">cancelled on the OSG Website</span>' : ''}</span>${btn('present', 'check', 'Here', 'primary')}${btn('missing', 'x', 'Missing', 'danger')}</li>`;
+          return `<li class="prow${r.cancelled ? ' cancelled' : ''}"><span class="nm">${nm}${r.cancelled ? ' <span class="muted tiny">cancelled on the OSG Website</span>' : neonOnly(r) ? ' <span class="muted tiny" title="Checked in on the OSG Website but not on your roll. Tap Here to add them, or Missing to uncheck them there.">attended on OSG</span>' : ''}</span>${btn('present', 'check', 'Here', 'primary')}${btn('missing', 'x', 'Missing', 'danger')}</li>`;
         })
         .join('') || '<li class="muted tiny">No registered names match.</li>';
       list.scrollTop = scrolled;
@@ -232,11 +247,11 @@ export function participantsView(root, ctx, eventId) {
           .map((a, i) => {
             const vol = effRole(a.id, a) === 'volunteer';
             const kind = personKind(a.type);
-            const gone = removed.has(a.id);
+            const isGone = gone.has(a.id);
             const nm = esc(a.name);
             const fixed = fixedRole(a.name);
             const whoIcon = whoIs.get(a.name.toLowerCase()) === 'staff' ? `<span class="who" title="Staff">${icon('shield')}</span>` : '';
-            return `<span class="pn ${kind}${whoIs.get(a.name.toLowerCase()) === 'staff' ? ' staff' : ''}${gone ? ' gone' : ''}${a.staged ? ' staged' : ''}"><button type="button" class="pname" data-role="${esc(a.id)}" aria-pressed="${vol}" title="${KIND[kind].label} · ${fixed ? (vol ? 'Volunteer' : 'Staff') : vol ? 'Volunteer (tap for Participant)' : 'Participant (tap for Volunteer)'}">${vol ? icon('heart') : ''}${whoIcon}${nm}</button><button type="button" class="mb del${gone ? ' on' : ''}" data-del="${esc(a.id)}" aria-label="${gone ? 'Keep' : 'Remove'} ${nm}" title="${gone ? 'Undo remove' : 'Remove'}">${icon(gone ? 'plus' : 'minus')}</button>${i < cur.length - 1 ? '<span class="sep">,</span>' : ''}</span>`;
+            return `<span class="pn ${kind}${whoIs.get(a.name.toLowerCase()) === 'staff' ? ' staff' : ''}${isGone ? ' gone' : ''}${a.staged ? ' staged' : ''}"><button type="button" class="pname" data-role="${esc(a.id)}" aria-pressed="${vol}" title="${KIND[kind].label} · ${fixed ? (vol ? 'Volunteer' : 'Staff') : vol ? 'Volunteer (tap for Participant)' : 'Participant (tap for Volunteer)'}">${vol ? icon('heart') : ''}${whoIcon}${nm}</button><button type="button" class="mb del${isGone ? ' on' : ''}" data-del="${esc(a.id)}" aria-label="${isGone ? 'Keep' : 'Remove'} ${nm}" title="${isGone ? 'Undo remove' : 'Remove'}">${icon(isGone ? 'plus' : 'minus')}</button>${i < cur.length - 1 ? '<span class="sep">,</span>' : ''}</span>`;
           })
           .join(' ')
       : `<span class="muted">No participants yet. Search above to add people.</span>`;
@@ -309,6 +324,12 @@ export function participantsView(root, ctx, eventId) {
       const shown = regStatus({ key: t.dataset.reg, ...r });
       // Here shown only because the OSG Website says so: tapping it confirms them (adds them to the roll).
       const fromNeon = shown === 'present' && !regEdits.has(t.dataset.reg) && (r.status || 'pending') === 'pending';
+      // Tapping the choice already staged on this row cancels it, back to what is saved.
+      if (regEdits.has(t.dataset.reg) && shown === t.dataset.st) {
+        regEdits.delete(t.dataset.reg);
+        render();
+        return;
+      }
       const next = shown === t.dataset.st && !fromNeon ? 'pending' : t.dataset.st;
       if (!fromNeon && next === baseStatus(r)) regEdits.delete(t.dataset.reg);
       else regEdits.set(t.dataset.reg, next);
@@ -325,12 +346,13 @@ export function participantsView(root, ctx, eventId) {
       render();
     } else if (t.id === 'done') {
       const saved = event.attendees || {};
-      const jobs = [...removed].filter((id) => saved[id]).map((id) => setAttendance(eventId, { id, ...saved[id] }, false));
-      for (const [id, role] of roleEdits) if (saved[id] && !removed.has(id)) jobs.push(setRole(eventId, id, role));
+      const leaving = goneIds();
+      const jobs = [...leaving].filter((id) => saved[id]).map((id) => setAttendance(eventId, { id, ...saved[id] }, false));
+      for (const [id, role] of roleEdits) if (saved[id] && !leaving.has(id)) jobs.push(setRole(eventId, id, role));
       // Known staff and volunteers get their fixed role, whatever an earlier roll recorded.
       for (const [id, a] of Object.entries(saved)) {
         const want = fixedRole(a.name);
-        if (want && want !== roleOf(a) && !removed.has(id) && !roleEdits.has(id)) jobs.push(setRole(eventId, id, want));
+        if (want && want !== roleOf(a) && !leaving.has(id) && !roleEdits.has(id)) jobs.push(setRole(eventId, id, want));
       }
       if (selfStaged) {
         let me = selfPerson();
@@ -507,7 +529,10 @@ export function participantsView(root, ctx, eventId) {
     }),
   );
 
+  const stopPresence = ctx?.user ? mountPresence($('#presence', root), { eventId, uid: ctx.user.uid, name: selfName || ctx.user.email || 'Someone', where: 'participants' }) : () => {};
+
   return () => {
+    stopPresence();
     clearTimeout(neonTimer);
     sync.destroy();
     unsubs.forEach((u) => u());
