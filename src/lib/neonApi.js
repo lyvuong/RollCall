@@ -127,10 +127,12 @@ const patchJson = (body) => ({ method: 'PATCH', headers: { 'Content-Type': 'appl
 
 /**
  * Send a neonSyncPlan() to Neon: event details first, then each check-in. Keeps going when one fails.
- * Resolves { sent, failed: [{name, reason}] } (name is 'Event details' for the event itself).
+ * Resolves { sent, failed: [{name, reason}], marked: {attendeeId: attended} } (name is 'Event details' for the event itself;
+ * marked lists the check-ins that went through, for the caller to remember as what Neon now says).
  */
 export async function pushNeonSync(neonEventId, plan, neonEvent) {
   const failed = [];
+  const marked = {};
   let sent = 0;
   try {
     if (plan.details.length) {
@@ -143,6 +145,7 @@ export async function pushNeonSync(neonEventId, plan, neonEvent) {
   for (const c of plan.checkins) {
     try {
       await neonApi(`registrations/${encodeURIComponent(c.registrationId)}/attendance`, patchJson({ attendeeId: c.attendeeId, attended: c.attended }));
+      marked[c.attendeeId] = c.attended;
       sent++;
     } catch (e) {
       failed.push({ name: c.name, reason: friendlyNeonReason(e.message) });
@@ -168,7 +171,7 @@ export async function pushNeonSync(neonEventId, plan, neonEvent) {
     }
   }
   forgetNeonCache();
-  return { sent, failed };
+  return { sent, failed, marked };
 }
 
 /** Create an unpublished event on the OSG Website for a RollCall-only event: resolves the new event's id. */

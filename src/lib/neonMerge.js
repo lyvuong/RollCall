@@ -135,7 +135,7 @@ export function planMerge(event, neon, attendees, hereAttendeeIds, locations, ne
     const key = String(a.attendeeId || '');
     const who = clean(a.name);
     if (!key || !who || registrants[key] || isCancelled(a.status)) continue;
-    registrants[key] = { name: who, accountId: String(a.accountId || ''), status: hereAttendeeIds.has(key) ? 'present' : 'pending' };
+    registrants[key] = { name: who, accountId: String(a.accountId || ''), ...(hereAttendeeIds.has(key) ? { status: 'present', neonSeen: true } : { status: 'pending' }) };
   }
 
   const data = { name, date: neon.date, startTime: start, endTime: end, format, locationId, neonEventId: String(neon.neonEventId), registrants };
@@ -156,7 +156,7 @@ export function planMove(source, target, attendees, hereAttendeeIds) {
   const registrants = {};
   for (const a of attendees || []) {
     const key = String(a.attendeeId || '');
-    if (key && hereAttendeeIds.has(key)) registrants[key] = { name: clean(a.name), accountId: String(a.accountId || ''), status: 'present' };
+    if (key && hereAttendeeIds.has(key)) registrants[key] = { name: clean(a.name), accountId: String(a.accountId || ''), status: 'present', neonSeen: true };
   }
   const data = { attendees: roll, registrants };
   if (!(Number(target.volunteerHours) > 0) && Number(source.volunteerHours) > 0) data.volunteerHours = Number(source.volunteerHours);

@@ -1,5 +1,6 @@
 import { fetchNeonSync, pushNeonSync, neonInfo, forgetNeonCache } from '../lib/neonApi.js';
 import { neonSyncPlan } from '../lib/neon.js';
+import { setNeonSeen } from '../data.js';
 import { esc, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { formatTime } from '../lib/time.js';
@@ -30,7 +31,7 @@ export function mountNeonSync(host, { getEvent, getLocationName, onSnapshot }) {
   const signature = () => {
     const e = getEvent();
     if (!e?.neonEventId) return '';
-    const regs = [...Object.entries(e.registrants || {}).map(([k, r]) => `${k}:${r.status || 'pending'}`), ...Object.values(e.attendees || {}).map((a) => `a:${a.name}`)].sort();
+    const regs = [...Object.entries(e.registrants || {}).map(([k, r]) => `${k}:${r.status || 'pending'}:${r.neonSeen}`), ...Object.values(e.attendees || {}).map((a) => `a:${a.name}`)].sort();
     return JSON.stringify([e.neonEventId, e.name, e.date, e.startTime, e.endTime, getLocationName(), regs]);
   };
 
@@ -154,7 +155,8 @@ export function mountNeonSync(host, { getEvent, getLocationName, onSnapshot }) {
     if (sending || !plan || plan.inSync) return;
     sending = true;
     renderDialog();
-    const { sent, failed } = await pushNeonSync(getEvent().neonEventId, plan, snap.event);
+    const { sent, failed, marked } = await pushNeonSync(getEvent().neonEventId, plan, snap.event);
+    if (Object.keys(marked).length && getEvent()?.id) setNeonSeen(getEvent().id, marked).catch(() => {});
     sending = false;
     failures = failed;
     toast(

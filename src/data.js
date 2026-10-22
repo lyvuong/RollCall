@@ -234,6 +234,10 @@ export function markRegistrant(eventId, reg, status, person = null) {
   return updateDoc(doc(db, 'events', eventId), patch);
 }
 
+/** Remember what the OSG Website said about each registered person at the last sync: {key: attended}. */
+export const setNeonSeen = (eventId, map) =>
+  updateDoc(doc(db, 'events', eventId), Object.fromEntries(Object.entries(map).map(([key, seen]) => [`registrants.${key}.neonSeen`, seen])));
+
 /** Store newly found registrants on an event (existing keys and their confirmations are left alone by the caller). */
 export const saveRegistrants = (eventId, map) => setDoc(doc(db, 'events', eventId), { registrants: map }, { merge: true });
 

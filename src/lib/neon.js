@@ -254,41 +254,72 @@ export function neonSyncPlan(event, neonEvent, attendees, locationName = '') {
     const byId = new Map(attendees.map((a) => [String(a.attendeeId), a]));
     const matches = matchParticipants(event.attendees, attendees);
     const onRoll = new Set(matches.filter((m) => m.attendee).map((m) => String(m.attendee.attendeeId)));
-    const rollKnown = event.attendees !== undefined; // the roll is the truth about who attended, once there is one
+    const rollKnown = event.attendees !== undefined;
     const regs = event.registrants || {};
     for (const [key, r] of Object.entries(regs)) {
-      const status = r.status || 'pending';
-      if (status === 'pending') continue;
       const a = byId.get(String(key));
-      // A registrant confirmed Here counts as attended only while still on the roll (removing them from it unchecks them).
-      const attended = status === 'present' && (!rollKnown || onRoll.has(String(key)));
-      if (a?.registrationId && a.markedAttended !== attended) {
-        checkins.push({ attendeeId: String(key), registrationId: String(a.registrationId), name: r.name || a.name, attended });
+      if (r.cancelled || !a?.registrationId) continue;
+      const status = r.status || 'pending';
+      const neon = a.markedAttended === true;
+      // Here -> attended (while still on the roll), Missing -> not attended. Unconfirmed sends nothing, except that
+      // taking back a Here (Neon attended as of the last sync, still Unconfirmed now) unchecks them.
+      let want = null;
+      if (status === 'present') want = !rollKnown || onRoll.has(String(key));
+      else if (status === 'missing') want = false;
+      else if (neon && r.neonSeen === true) want = false;
+      if (want !== null && want !== neon) {
+        checkins.push({ attendeeId: String(key), registrationId: String(a.registrationId), name: r.name || a.name, attended: want });
       }
     }
     const decided = new Set(checkins.map((c) => c.attendeeId));
     for (const m of matches) {
       if (!m.attendee) walkins.push({ personId: m.personId, name: m.name });
-      else if (!m.attendee.markedAttended && m.attendee.registrationId && !decided.has(String(m.attendee.attendeeId)) && regs[m.attendee.attendeeId]?.status !== 'missing') {
+      else if (!regs[m.attendee.attendeeId] && !m.attendee.markedAttended && m.attendee.registrationId && !decided.has(String(m.attendee.attendeeId))) {
         decided.add(String(m.attendee.attendeeId));
         checkins.push({ attendeeId: String(m.attendee.attendeeId), registrationId: String(m.attendee.registrationId), name: m.name, attended: true });
-      }
-    }
-    // Marked attended on Neon, not on the roll, and unknown to RollCall's registered list (e.g. a walk-in sent earlier, then removed).
-    const rollTaken = rollKnown && (Object.keys(event.attendees).length > 0 || Object.values(regs).some((r) => (r.status || 'pending') !== 'pending'));
-    if (rollTaken) {
-      for (const a of attendees) {
-        const id = String(a.attendeeId);
-        if (a.markedAttended && a.registrationId && a.name && !onRoll.has(id) && !regs[id] && !decided.has(id) && !isCancelled(a.status)) {
-          decided.add(id);
-          checkins.push({ attendeeId: id, registrationId: String(a.registrationId), name: a.name, attended: false });
-        }
       }
     }
     checkins.sort((x, y) => x.name.localeCompare(y.name));
   }
   const count = details.length + checkins.length + walkins.length;
   return { details, checkins, walkins, count, inSync: count === 0 };
+}
+
+/**
+ * What RollCall should write down after looking at the OSG Website's attendees, without asking anyone:
+ *   {type:'add',  key, entry}   an OSG registration RollCall has no row for yet (already Here when they are on the roll)
+ *   {type:'pull', key, name}    checked in on the OSG Website while still Unconfirmed here: becomes Here, joins the roll
+ *   {type:'ack',  key, seen}    both sides already agree: remember Neon's value (`neonSeen`)
+ * `neonSeen` is what Neon said at the last sync. It is how an attended flag that was set on the OSG Website (pull) is told
+ * from one RollCall is about to change (push): the three RollCall states Unconfirmed / Here / Missing map to Neon's two.
+ */
+export function neonReconcile(event, attendees) {
+  if (!attendees) return [];
+  const regs = event.registrants || {};
+  const onRoll = new Set(
+    matchParticipants(event.attendees, attendees)
+      .filter((m) => m.attendee)
+      .map((m) => String(m.attendee.attendeeId)),
+  );
+  const ops = [];
+  for (const a of attendees) {
+    const key = String(a.attendeeId || '');
+    const name = String(a.name || '').replace(/\s+/g, ' ').trim();
+    if (!key || !name || isCancelled(a.status)) continue;
+    const neon = a.markedAttended === true;
+    const r = regs[key];
+    if (!r) {
+      const here = onRoll.has(key);
+      ops.push({ type: 'add', key, entry: { name, accountId: String(a.accountId || ''), status: here ? 'present' : 'pending', ...(here ? { neonSeen: neon } : {}) } });
+      if (!here && neon) ops.push({ type: 'pull', key, name });
+      continue;
+    }
+    if (r.cancelled) continue;
+    const status = r.status || 'pending';
+    if (status === 'pending' && neon && r.neonSeen !== true) ops.push({ type: 'pull', key, name: r.name || name });
+    else if (r.neonSeen !== neon && ((status === 'present' && neon) || (status !== 'present' && !neon))) ops.push({ type: 'ack', key, seen: neon });
+  }
+  return ops;
 }
 
 /** The Neon event patch ({name?, date?, endDate?, startTime?, endTime?, location?}) that makes `details` true. */

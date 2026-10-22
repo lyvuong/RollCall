@@ -84,7 +84,7 @@ describe('planMerge', () => {
     expect(data).toMatchObject({ name: 'Walk (Virtual)', date: '2026-10-20', startTime: '17:00', endTime: '18:00', format: 'virtual', locationId: null, neonEventId: '42' });
     expect(data.registrants).toEqual({
       1: { name: 'Ada', accountId: '100', status: 'pending' },
-      3: { name: 'Cy', accountId: '', status: 'present' },
+      3: { name: 'Cy', accountId: '', status: 'present', neonSeen: true },
     });
     expect(ops).toEqual([{ col: 'events', id: 'ev1', data, merge: true }]);
     expect(data).not.toHaveProperty('attendees');
@@ -112,7 +112,7 @@ describe('planMove', () => {
     const target = { id: 't', attendees: { b: { name: 'Bo', role: 'participant' } }, volunteerHours: 0, description: '' };
     const { ops, data } = planMove(source, target, attendees, new Set(['9']));
     expect(data.attendees).toEqual({ a: { name: 'Ada', role: 'participant' } }); // Bo is already there and is left alone
-    expect(data.registrants).toEqual({ 9: { name: 'Ada', accountId: '100', status: 'present' } });
+    expect(data.registrants).toEqual({ 9: { name: 'Ada', accountId: '100', status: 'present', neonSeen: true } });
     expect(data.volunteerHours).toBe(2);
     expect(data.description).toBe('notes');
     expect(ops).toEqual([{ col: 'events', id: 't', data, merge: true }]);

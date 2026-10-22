@@ -1,4 +1,4 @@
-import { loadExisting, commitOps, newId, markDuplicate } from '../data.js';
+import { loadExisting, commitOps, newId, markDuplicate, setNeonSeen } from '../data.js';
 import {
   fetchNeonEvents,
   fetchNeonSync,
@@ -333,6 +333,7 @@ export function openMergeDialog({ event, locationName = '' }) {
       if (plan.checkins.length) {
         const sent = await pushNeonSync(picked.neonEventId, { details: [], checkins: plan.checkins }, fresh.event);
         out.failed.push(...sent.failed);
+        if (Object.keys(sent.marked).length) setNeonSeen(target?.id || event.id, sent.marked).catch(() => {});
       }
       forgetNeonCache();
       if (target) {

@@ -1,7 +1,7 @@
-import { watchEvent, watchLocations, watchPeople, setAttendance, setRole, addPerson, markRegistrant, saveRegistrants, searchNeonPeople, linkPerson, watchRoster } from '../data.js';
+import { watchEvent, watchLocations, watchPeople, setAttendance, setRole, addPerson, markRegistrant, saveRegistrants, setNeonSeen, searchNeonPeople, linkPerson, watchRoster } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { fetchNeonRegistrants } from '../lib/neonApi.js';
-import { registrantUpdates, isImminent } from '../lib/neon.js';
+import { registrantUpdates, isImminent, neonReconcile } from '../lib/neon.js';
 import { icon } from '../lib/icons.js';
 import { mountNeonSync } from './neonSync.js';
 import { renderMergeSlot } from './neonMerge.js';
@@ -25,7 +25,7 @@ export function participantsView(root, ctx, eventId) {
   const regEdits = new Map(); // staged Here / Missing choices for registered names (key -> status), applied on Done
   const addEdits = new Map(); // staged adds from the search box (id 'add:...' -> {name, type, person|neon|isNew}), applied on Done
   let regQ = ''; // filter for a long registered list
-  let neonAttended = new Map(); // registrant key (attendeeId) -> attended on the OSG Website, from the latest sync check
+  let lastReconcile = ''; // the writes the last OSG Website check led to, so one check is never applied twice
   /** On the roll (saved, not staged for removal) under this name? */
   /** Roll entries staged to leave: removed by hand, or named on a registered row just set to Missing. */
   const goneIds = () => {
@@ -37,19 +37,9 @@ export function participantsView(root, ctx, eventId) {
   };
   const onRollWith = (gone, name) => Object.entries(event?.attendees || {}).some(([id, a]) => !gone.has(id) && a.name.toLowerCase() === String(name).toLowerCase());
   const onRoll = (name) => onRollWith(goneIds(), name);
-  /**
-   * The saved status, except: a confirmed Here whose person is no longer on the roll counts as Missing (so the OSG
-   * Website gets unchecked), and an unconfirmed name the OSG Website has as attended shows as Here.
-   */
-  const baseStatus = (r) => {
-    if (r.status === 'present' && !onRollWith(removed, r.name)) return 'missing'; // by hand only: a staged tap on this row must not change what it is measured against
-    if (!r.status || r.status === 'pending') return neonAttended.get(String(r.key)) === true ? 'present' : 'pending';
-    return r.status;
-  };
+  /** The saved status, except a confirmed Here whose person has just been removed from the roll counts as Missing. */
+  const baseStatus = (r) => (r.status === 'present' && !onRollWith(removed, r.name) ? 'missing' : r.status || 'pending');
   const regStatus = (r) => regEdits.get(r.key) ?? baseStatus(r);
-  /** Attended on the OSG Website, but not confirmed in RollCall (so not on the roll): shown as neither Here nor Missing. */
-  const neonOnly = (r) => !regEdits.has(r.key) && (!r.status || r.status === 'pending') && neonAttended.get(String(r.key)) === true;
-  const shownStatus = (r) => (neonOnly(r) ? 'pending' : regStatus(r));
   /** Known members have a fixed role at every event: a volunteer is always a volunteer, staff always a participant. */
   const fixedRole = (name) => fixedRoleIn(whoIs, name);
   const effRole = (id, a) => fixedRole(a?.name) || roleEdits.get(id) || roleOf(a);
@@ -83,6 +73,43 @@ export function participantsView(root, ctx, eventId) {
   });
   const unsubs = [];
   let regTried = false;
+
+  /**
+   * Bring RollCall's registered list in line with what the OSG Website just said (see neonReconcile): rows for new
+   * registrations, check-ins made there become Here and join the roll, and agreed values are remembered. Written
+   * straight to Firestore, not staged; rows with a pending tap on them are left for that tap to settle.
+   */
+  function reconcile(list) {
+    if (!event?.neonEventId || !list) return;
+    const ops = neonReconcile(event, list).filter((o) => !regEdits.has(o.key));
+    const sig = JSON.stringify(ops);
+    if (!ops.length || sig === lastReconcile) return;
+    lastReconcile = sig;
+    const adds = {};
+    const seen = {};
+    for (const o of ops) {
+      if (o.type === 'add') adds[o.key] = o.entry;
+      else if (o.type === 'ack') seen[o.key] = o.seen;
+    }
+    if (Object.keys(adds).length) saveRegistrants(eventId, adds).catch(() => {});
+    if (Object.keys(seen).length) setNeonSeen(eventId, seen).catch(() => {});
+    const pulls = ops.filter((o) => o.type === 'pull');
+    if (!pulls.length || !peopleLoaded) return; // adding people to the roll waits until the saved people are known
+    for (const o of pulls) {
+      const r = event.registrants?.[o.key] || adds[o.key] || { name: o.name };
+      const same = (x) => x.name.toLowerCase() === o.name.toLowerCase();
+      const there = Object.entries(event.attendees || {}).find(([, a]) => same(a));
+      let person = there ? { id: there[0], name: there[1].name, alreadyThere: true } : people.find(same);
+      if (!person) {
+        const created = addPerson(o.name, 'community');
+        created.done.catch(() => {});
+        person = created.person;
+      }
+      markRegistrant(eventId, { key: o.key, ...r }, 'present', person).catch(() => {});
+      setNeonSeen(eventId, { [o.key]: true }).catch(() => {});
+    }
+    toast(`${pulls.length === 1 ? `${pulls[0].name} was` : `${pulls.length} people were`} checked in on the OSG Website and added to the roll.`);
+  }
 
   /**
    * Fetch an event's registered names once when the page opens: for an event with none stored (imported earlier, or
@@ -217,7 +244,7 @@ export function participantsView(root, ctx, eventId) {
     $('#regCard', root).hidden = !regs.length;
     if (regs.length) {
       const live = regs.filter((r) => !r.cancelled);
-      const n = (st) => live.filter((r) => shownStatus(r) === st).length;
+      const n = (st) => live.filter((r) => regStatus(r) === st).length;
       const dropped = regs.length - live.length;
       $('#regTitle', root).innerHTML = `${icon('check')} Registered (${live.length}) <span class="muted tiny">${n('present')} here · ${n('missing')} missing · ${n('pending')} to confirm${dropped ? ` · ${dropped} cancelled` : ''}</span>`;
       const LONG = 12; // lists longer than this get a name filter
@@ -228,11 +255,11 @@ export function participantsView(root, ctx, eventId) {
       const scrolled = list.scrollTop; // re-rendering must not jump the list back to the top
       list.innerHTML = shown
         .map((r) => {
-          const st = shownStatus(r);
+          const st = regStatus(r);
           const nm = esc(r.name);
           const btn = (kind, ic, label, cls) =>
             `<button type="button" class="btn small${st === kind ? ` ${cls}` : ' ghost'}" data-reg="${esc(r.key)}" data-st="${kind}" aria-pressed="${st === kind}" aria-label="${label}: ${nm}" title="${st === kind ? 'Tap to undo' : label}">${icon(ic)}<span class="wide">${label}</span></button>`;
-          return `<li class="prow${r.cancelled ? ' cancelled' : ''}"><span class="nm">${nm}${r.cancelled ? ' <span class="muted tiny">cancelled on the OSG Website</span>' : neonOnly(r) ? ' <span class="muted tiny" title="Checked in on the OSG Website but not on your roll. Tap Here to add them, or Missing to uncheck them there.">attended on OSG</span>' : ''}</span>${btn('present', 'check', 'Here', 'primary')}${btn('missing', 'x', 'Missing', 'danger')}</li>`;
+          return `<li class="prow${r.cancelled ? ' cancelled' : ''}"><span class="nm">${nm}${r.cancelled ? ' <span class="muted tiny">cancelled on the OSG Website</span>' : ''}</span>${btn('present', 'check', 'Here', 'primary')}${btn('missing', 'x', 'Missing', 'danger')}</li>`;
         })
         .join('') || '<li class="muted tiny">No registered names match.</li>';
       list.scrollTop = scrolled;
@@ -322,16 +349,14 @@ export function participantsView(root, ctx, eventId) {
       if (!r) return;
       // Staged only: nothing is saved (or added to the roll) until Done.
       const shown = regStatus({ key: t.dataset.reg, ...r });
-      // Here shown only because the OSG Website says so: tapping it confirms them (adds them to the roll).
-      const fromNeon = shown === 'present' && !regEdits.has(t.dataset.reg) && (r.status || 'pending') === 'pending';
       // Tapping the choice already staged on this row cancels it, back to what is saved.
       if (regEdits.has(t.dataset.reg) && shown === t.dataset.st) {
         regEdits.delete(t.dataset.reg);
         render();
         return;
       }
-      const next = shown === t.dataset.st && !fromNeon ? 'pending' : t.dataset.st;
-      if (!fromNeon && next === baseStatus(r)) regEdits.delete(t.dataset.reg);
+      const next = shown === t.dataset.st ? 'pending' : t.dataset.st;
+      if (next === baseStatus(r)) regEdits.delete(t.dataset.reg);
       else regEdits.set(t.dataset.reg, next);
       render();
       return;
@@ -500,10 +525,7 @@ export function participantsView(root, ctx, eventId) {
   const sync = mountNeonSync($('#syncSlot', root), {
     getEvent: () => event,
     getLocationName: () => locations.find((l) => l.id === event?.locationId)?.name || '',
-    onSnapshot: (list) => {
-      neonAttended = new Map((list || []).map((a) => [String(a.attendeeId), a.markedAttended === true]));
-      render();
-    },
+    onSnapshot: reconcile,
   });
 
   unsubs.push(

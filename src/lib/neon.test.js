@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planNeonEvents, neonOnlyEvents, inferFormat, emptyPastNeonEvents, neonSyncPlan, neonEventPatch, friendlyNeonReason, staleRegistrantEvents, registrantUpdates } from './neon.js';
+import { planNeonEvents, neonOnlyEvents, inferFormat, emptyPastNeonEvents, neonSyncPlan, neonEventPatch, friendlyNeonReason, staleRegistrantEvents, registrantUpdates, neonReconcile } from './neon.js';
 
 describe('staleRegistrantEvents', () => {
   const local = (o) => ({ id: 'e1', neonEventId: '1', date: '2026-10-30', ...o });
@@ -267,22 +267,31 @@ describe('neonSyncPlan', () => {
     expect(plan.count).toBe(2);
   });
 
-  it('unchecks people removed from the roll', () => {
+  it('maps Here, Missing and Unconfirmed onto Neon attended / not attended', () => {
     const attendees = [
-      { attendeeId: '1', registrationId: '90', name: 'Ada Lovelace', markedAttended: true }, // confirmed Here, then removed from the roll
-      { attendeeId: '2', registrationId: '91', name: 'Bo Peep', markedAttended: true }, // walk-in sent earlier, since removed
-      { attendeeId: '3', registrationId: '92', name: 'Cy Young', markedAttended: true }, // still on the roll
-      { attendeeId: '4', registrationId: '93', name: 'Di Dee', markedAttended: true }, // pending registrant: left alone
+      { attendeeId: '1', registrationId: '90', name: 'Ada Lovelace', markedAttended: true }, // Here but removed from the roll
+      { attendeeId: '2', registrationId: '91', name: 'Bo Peep', markedAttended: true }, // Missing
+      { attendeeId: '3', registrationId: '92', name: 'Cy Young', markedAttended: false }, // Here, Neon says no
+      { attendeeId: '4', registrationId: '93', name: 'Di Dee', markedAttended: true }, // Unconfirmed, Neon checked them in: leave alone
+      { attendeeId: '5', registrationId: '94', name: 'Ed Eng', markedAttended: true }, // Unconfirmed after a Here we synced: undo
     ];
-    const registrants = { 1: { name: 'Ada Lovelace', status: 'present' }, 3: { name: 'Cy Young', status: 'present' }, 4: { name: 'Di Dee' } };
+    const registrants = {
+      1: { name: 'Ada Lovelace', status: 'present' },
+      2: { name: 'Bo Peep', status: 'missing' },
+      3: { name: 'Cy Young', status: 'present' },
+      4: { name: 'Di Dee' },
+      5: { name: 'Ed Eng', neonSeen: true },
+    };
     const plan = neonSyncPlan({ ...ev, registrants, attendees: { p3: { name: 'Cy Young' } } }, neon, attendees, 'Cadence');
-    expect(plan.checkins).toEqual([
-      { attendeeId: '1', registrationId: '90', name: 'Ada Lovelace', attended: false },
-      { attendeeId: '2', registrationId: '91', name: 'Bo Peep', attended: false },
+    expect(plan.checkins.map((c) => [c.name, c.attended])).toEqual([
+      ['Ada Lovelace', false],
+      ['Bo Peep', false],
+      ['Cy Young', true],
+      ['Ed Eng', false],
     ]);
   });
 
-  it('does not uncheck anyone before a roll has been taken', () => {
+  it('leaves unknown, unregistered Neon check-ins alone', () => {
     const attendees = [{ attendeeId: '1', registrationId: '90', name: 'Ada', markedAttended: true }];
     expect(neonSyncPlan({ ...ev, attendees: {} }, neon, attendees, 'Cadence').checkins).toEqual([]);
   });
@@ -306,5 +315,40 @@ describe('friendlyNeonReason', () => {
   });
   it('strips the prefix from other errors', () => {
     expect(friendlyNeonReason('Neon One 400: Something else')).toBe('Something else');
+  });
+});
+
+describe('neonReconcile', () => {
+  const att = (id, name, markedAttended, extra = {}) => ({ attendeeId: id, registrationId: `r${id}`, name, markedAttended, status: 'SUCCEEDED', ...extra });
+
+  it('pulls a check-in made on Neon into an Unconfirmed row, once', () => {
+    const ev = { attendees: {}, registrants: { 1: { name: 'Ada' } } };
+    expect(neonReconcile(ev, [att('1', 'Ada', true)])).toEqual([{ type: 'pull', key: '1', name: 'Ada' }]);
+    const done = { attendees: { p1: { name: 'Ada' } }, registrants: { 1: { name: 'Ada', status: 'present', neonSeen: true } } };
+    expect(neonReconcile(done, [att('1', 'Ada', true)])).toEqual([]);
+  });
+
+  it('does not pull a person RollCall just took back (Neon attended as of the last sync)', () => {
+    const ev = { attendees: {}, registrants: { 1: { name: 'Ada', neonSeen: true } } };
+    expect(neonReconcile(ev, [att('1', 'Ada', true)])).toEqual([]);
+  });
+
+  it('remembers the Neon value once both sides agree', () => {
+    const ev = { attendees: { p1: { name: 'Ada' } }, registrants: { 1: { name: 'Ada', status: 'present' }, 2: { name: 'Bo', status: 'missing' } } };
+    expect(neonReconcile(ev, [att('1', 'Ada', true), att('2', 'Bo', false)])).toEqual([
+      { type: 'ack', key: '1', seen: true },
+      { type: 'ack', key: '2', seen: false },
+    ]);
+  });
+
+  it('adds rows for new registrations: Here when already on the roll, else Unconfirmed (pulled if checked in)', () => {
+    const ev = { attendees: { p1: { name: 'Walk In' } }, registrants: {} };
+    const ops = neonReconcile(ev, [att('7', 'Walk In', true), att('8', 'New Person', true), att('9', 'Quiet One', false), att('10', 'Gone', false, { status: 'CANCELLED' })]);
+    expect(ops).toEqual([
+      { type: 'add', key: '7', entry: { name: 'Walk In', accountId: '', status: 'present', neonSeen: true } },
+      { type: 'add', key: '8', entry: { name: 'New Person', accountId: '', status: 'pending' } },
+      { type: 'pull', key: '8', name: 'New Person' },
+      { type: 'add', key: '9', entry: { name: 'Quiet One', accountId: '', status: 'pending' } },
+    ]);
   });
 });
