@@ -113,13 +113,14 @@ export function settingsView(root, ctx) {
       <a class="btn" href="#/neon">${icon('download')} Import events from the OSG Website</a>
       <p class="muted" id="psStatus">Checking the last people sync…</p>
       <button class="btn" id="psSync">${icon('userPlus')} Update people from the OSG Website</button>
-    </section>
-    <section class="card">
-      <h2>${icon('shield')} People who sign in <span class="count" id="memCount"></span></h2>
-      <div id="mems"></div>
     </section>`
         : ''
     }
+
+    <section class="card">
+      <h2>${icon('shield')} People who sign in <span class="count" id="memCount"></span></h2>
+      <div id="mems"></div>
+    </section>
 
     <section class="card">
       <h2>${icon('user')} My role <button type="button" class="info-btn" id="roleInfoBtn" aria-expanded="false" aria-controls="roleInfo" aria-label="About roles" title="About roles">${icon('info')}</button></h2>
@@ -612,6 +613,24 @@ export function settingsView(root, ctx) {
       watchMembers((rows) => ((members = rows), renderMembers(), backfillRoster())),
       watchRoster((rows) => ((roster = rows), backfillRoster())),
     );
+  }
+
+  /* ----- everyone else: read-only list from the roster (names and roles, no emails) ----- */
+  if (!ctx.isAdmin) {
+    const renderRoster = (rows) => {
+      const named = rows.filter((r) => r.name);
+      $('#memCount', root).textContent = named.length ? `(${named.length})` : '';
+      const group = (title, role) => {
+        const list = named.filter((r) => r.role === role);
+        return list.length
+          ? `<h3>${title} (${list.length})</h3><div class="tags">${list
+              .map((r) => `<span class="tag">${icon(role === 'staff' ? 'shield' : 'heart')}<span class="tname">${esc(r.name)}</span>${r.id === ctx.user.uid ? '<small class="muted">you</small>' : ''}</span>`)
+              .join('')}</div>`
+          : '';
+      };
+      $('#mems', root).innerHTML = named.length ? group('Staff', 'staff') + group('Volunteers', 'volunteer') : '<span class="muted">Nobody yet.</span>';
+    };
+    unsubs.push(watchRoster(renderRoster));
   }
 
   /* ----- my role: staff or volunteer ----- */
