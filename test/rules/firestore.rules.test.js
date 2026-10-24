@@ -34,7 +34,7 @@ beforeEach(async () => {
   });
 });
 
-const redeem = (uid, code) => ({ code, email: `${uid}@x.org`, redeemedAt: Timestamp.now() });
+const redeem = (uid, code) => ({ code, email: `${uid}@x.org`, name: 'Test', redeemedAt: Timestamp.now() });
 
 describe('invitation codes', () => {
   it('valid code grants membership', async () => {
