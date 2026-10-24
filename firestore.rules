@@ -20,7 +20,13 @@ service cloud.firestore {
     // Invitation codes: doc ID is the code. Must know the code to get it.
     match /invites/{code} {
       allow get: if signedIn();
-      allow list, create, update, delete: if isAdmin();
+      // Any member may see and create codes; only an admin may change or delete one.
+      allow list: if isMember();
+      allow create: if isMember()
+        && request.resource.data.keys().hasOnly(['expiresAt', 'label', 'createdBy'])
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if isAdmin();
     }
 
     // Membership is granted by redeeming a valid, unexpired code.
