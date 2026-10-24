@@ -5,7 +5,7 @@ import {
   assertSucceeds,
   assertFails,
 } from '@firebase/rules-unit-testing';
-import { collectionGroup, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore';
+import { collection, collectionGroup, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore';
 
 let env;
 const future = () => Timestamp.fromMillis(Date.now() + 86_400_000);
@@ -78,12 +78,17 @@ describe('data access', () => {
     await assertFails(setDoc(doc(db, 'events', 'e3'), { ...base, startTime: '10:00', endTime: '09:00' }));
   });
 
-  it('only admins manage invites', async () => {
+  it('members create and list invites; only admins delete them', async () => {
     const member = env.authenticatedContext('member1').firestore();
     const admin = env.authenticatedContext('admin1').firestore();
-    const data = { expiresAt: future(), createdBy: 'x' };
-    await assertFails(setDoc(doc(member, 'invites', 'NEW'), data));
-    await assertSucceeds(setDoc(doc(admin, 'invites', 'NEW'), data));
+    const stranger = env.authenticatedContext('nobody').firestore();
+    await assertSucceeds(setDoc(doc(member, 'invites', 'NEW'), { expiresAt: future(), label: '', createdBy: 'member1' }));
+    await assertFails(setDoc(doc(member, 'invites', 'FAKE'), { expiresAt: future(), createdBy: 'someone-else' }));
+    await assertFails(setDoc(doc(member, 'invites', 'GOODCODE'), { expiresAt: future(), createdBy: 'member1' }));
+    await assertSucceeds(getDocs(collection(member, 'invites')));
+    await assertFails(getDocs(collection(stranger, 'invites')));
+    await assertFails(deleteDoc(doc(member, 'invites', 'NEW')));
+    await assertSucceeds(deleteDoc(doc(admin, 'invites', 'NEW')));
   });
 
   it('member can bulk-import a large batch of people and events', async () => {

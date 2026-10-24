@@ -94,9 +94,6 @@ export function settingsView(root, ctx) {
       <a class="btn" href="#/import" style="margin-top:14px">${icon('upload')} Import people or past events</a>
     </section>
 
-    ${
-      ctx.isAdmin
-        ? `
     <section class="card">
       <h2>${icon('key')} Invitation codes <span class="count" id="invCount"></span></h2>
       <p class="muted">New staff sign in with Google, then enter a code. Expired codes stop working for new joiners.</p>
@@ -107,6 +104,9 @@ export function settingsView(root, ctx) {
       </form>
       <ul id="invs" class="rows"></ul>
     </section>
+    ${
+      ctx.isAdmin
+        ? `
     <section class="card">
       <h2>${icon('download')} OSG Website</h2>
       <p class="muted">Bring events from the OSG Website into RollCall.</p>
@@ -488,7 +488,7 @@ export function settingsView(root, ctx) {
 
   /* ----- admin: invites & members ----- */
 
-  if (ctx.isAdmin) {
+  {
     $('#invExp', root).value = addDays(ymd(), 7);
 
     const renderInvites = () => {
@@ -504,7 +504,7 @@ export function settingsView(root, ctx) {
                 <span class="nm"><code>${esc(i.id)}</code> ${esc(i.label)}
                   <small class="muted">${expired ? 'expired' : 'expires'} ${exp.toLocaleDateString()}</small></span>
                 <button class="btn small" data-act="copy" aria-label="Copy code">${icon('copy')}</button>
-                <button class="btn small danger" data-act="del" aria-label="Delete code">${icon('trash')}</button></li>`;
+                ${ctx.isAdmin ? `<button class="btn small danger" data-act="del" aria-label="Delete code">${icon('trash')}</button>` : ''}</li>`;
             })
             .join('')
         : '<li class="empty">No invitation codes.</li>';
@@ -528,7 +528,10 @@ export function settingsView(root, ctx) {
       $('#invLabel', root).value = '';
       toast(`Code ${code} created`);
     };
+    unsubs.push(watchInvites((rows) => ((invites = rows), renderInvites())));
+  }
 
+  if (ctx.isAdmin) {
     // Roles chosen before the roster existed: record them once so participants lists can show them.
     let roster;
     const backfillRoster = () => {
@@ -609,7 +612,6 @@ export function settingsView(root, ctx) {
 
     unsubs.push(
       watchPeopleSync((s) => ((lastSync = s), renderSync())),
-      watchInvites((rows) => ((invites = rows), renderInvites())),
       watchMembers((rows) => ((members = rows), renderMembers(), backfillRoster())),
       watchRoster((rows) => ((roster = rows), backfillRoster())),
     );
