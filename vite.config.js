@@ -20,6 +20,14 @@ function appVersion() {
 
 export default defineConfig({
   define: { __APP_VERSION__: JSON.stringify(appVersion()) },
+  build: {
+    // The Firebase SDK alone is ~550 kB minified and cannot be split further.
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      // Own chunk for Firebase so app updates don't re-download it.
+      output: { manualChunks: (id) => (id.includes('node_modules/firebase') || id.includes('node_modules/@firebase') ? 'firebase' : undefined) },
+    },
+  },
   test: { include: ['src/**/*.test.js', 'worker/**/*.test.js'] },
   plugins: [
     VitePWA({
