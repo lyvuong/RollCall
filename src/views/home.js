@@ -1,6 +1,8 @@
 import { watchEvents, watchLocations, watchAllPhotos, watchRoster, loadExisting, newId, commitOps } from '../data.js';
 import { fetchNeonEvents, readNeonCache, fetchRegistrantsFor } from '../lib/neonApi.js';
-import { neonOnlyEvents, planNeonEvents, staleRegistrantEvents } from '../lib/neon.js';
+import { neonOnlyEvents, planNeonEvents, neonSyncPlan, staleRegistrantEvents } from '../lib/neon.js';
+import { similarNeonEvents } from '../lib/neonMerge.js';
+import { openMergeDialog } from './neonMerge.js';
 import { photoUrl } from '../lib/photos.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { rosterMap, fixedRole } from '../lib/roster.js';
@@ -43,8 +45,29 @@ export const PRESETS = [
 
 // Remembered across navigation within the session.
 const refreshing = new Set(); // registrant refreshes already tried this session (see refreshRegistrants)
+const RANGE_KEY = 'rollcall.range';
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+/** The date range last chosen in this tab (kept across reloads and app updates, not across tabs). */
+function savedRange() {
+  try {
+    const r = JSON.parse(sessionStorage.getItem(RANGE_KEY) || 'null');
+    return r && DAY.test(r.from) && DAY.test(r.to) ? { from: r.from, to: r.to } : null;
+  } catch {
+    return null;
+  }
+}
+/** Remember a range the user picked; the default (yesterday to tomorrow) is not remembered, so it keeps following today. */
+const saveRange = (r) => {
+  try {
+    const d = defaultRange();
+    if (r.from === d.from && r.to === d.to) sessionStorage.removeItem(RANGE_KEY);
+    else sessionStorage.setItem(RANGE_KEY, JSON.stringify({ from: r.from, to: r.to }));
+  } catch {
+    /* storage unavailable: the range is still remembered while the page stays open */
+  }
+};
 let range = null;
-const open = new Set(); // expanded event cards
+const open = new Map(); // expanded event cards: id -> 'all' | 'vol' | 'mem' | 'reg' (which names to list)
 const dayToggled = new Map(); // date -> open?, for day groups the user opened or closed (others use the default)
 let filterOpen = false; // date-range card expanded?
 let fixOnly = false; // only events that still need volunteers identified, across all dates
@@ -52,7 +75,7 @@ const ALL = { from: '2000-01-01', to: '2099-12-31' };
 const defaultRange = () => PRESETS[0].get(ymd());
 
 export function homeView(root, _ctx) {
-  range ||= defaultRange();
+  range ||= savedRange() || defaultRange();
   let events = [];
   let locations = {};
   let photosByEvent = new Map(); // eventId -> photo metadata[]
@@ -60,6 +83,7 @@ export function homeView(root, _ctx) {
   let roster = new Map(); // lower-case name -> 'staff' | 'volunteer'
   let neonRaw = []; // last Neon result for the visible range (cached copy first, then fresh)
   let neonSeq = 0; // ignores answers for a range the user has already moved away from
+  const checkinDiff = new Map(); // eventId -> {sig, n}: confirmed check-ins that differ from the OSG Website
 
   root.innerHTML = `
     <section class="bar">
@@ -200,6 +224,54 @@ export function homeView(root, _ctx) {
     </div>`;
   }
 
+  /** The likeliest OSG Website twin of a RollCall-only event, or null. Uses the Neon list already on screen. */
+  function osgTwin(e) {
+    if (e.neonEventId || e.duplicateOf || !neonRaw.length) return null;
+    const taken = new Set(events.filter((x) => x.neonEventId).map((x) => String(x.neonEventId)));
+    return similarNeonEvents(e, neonRaw, { locationName: e.locationId ? locations[e.locationId] : '', takenIds: taken })[0] || null;
+  }
+
+  /** How many compared things differ from the OSG Website for this event (0 = in sync or not yet known). */
+  function unsyncedCount(e) {
+    if (!e.neonEventId) return 0;
+    const n = neonRaw.find((x) => String(x.neonEventId) === String(e.neonEventId));
+    const details = n ? neonSyncPlan(e, n, null, e.locationId ? locations[e.locationId] : '').details.length : 0;
+    return details + (checkinDiff.get(e.id)?.n || 0);
+  }
+
+  /**
+   * Compare confirmed check-ins with the OSG Website for events that have any (names are cached, so this is
+   * cheap after the first look). Re-runs only for events whose confirmations changed.
+   */
+  async function checkCheckins() {
+    const seq = neonSeq;
+    const regSig = (e) => JSON.stringify([Object.entries(e.registrants || {}).map(([k, r]) => [k, r.status || 'pending']).sort(), Object.values(e.attendees || {}).map((a) => a.name).sort()]);
+    const todo = events.filter(
+      (e) => e.neonEventId && e.date <= ymd() && (Object.keys(e.attendees || {}).length || Object.values(e.registrants || {}).some((r) => (r.status || 'pending') !== 'pending')) && checkinDiff.get(e.id)?.sig !== regSig(e),
+    );
+    if (!todo.length) return;
+    const { byEvent } = await fetchRegistrantsFor(todo.map((e) => String(e.neonEventId)), undefined, 4, { force: true });
+    if (seq !== neonSeq) return;
+    let changed = false;
+    for (const e of todo) {
+      const list = byEvent[String(e.neonEventId)];
+      if (!list) continue; // Neon unreachable for this one: say nothing
+      const p = neonSyncPlan(e, { name: e.name, date: e.date }, list, '');
+      const n = p.checkins.length + p.walkins.length;
+      if ((checkinDiff.get(e.id)?.n || 0) !== n) changed = true;
+      checkinDiff.set(e.id, { sig: regSig(e), n });
+    }
+    if (changed) renderList();
+  }
+
+  /** A count pill; with a count above zero it is a button that lists those names under the card. */
+  function pill(e, which, n, title, ic, label) {
+    const body = `${ic}<b>${n}</b><span class="wide">${label}</span>`;
+    if (!n) return `<span class="pill ${which}" title="${title}">${body}</span>`;
+    const on = open.get(e.id) === which;
+    return `<button type="button" class="pill ${which}" data-who="${which}" aria-pressed="${on}" title="${title}: tap to ${on ? 'hide' : 'show'} the names">${body}</button>`;
+  }
+
   function card(e) {
     const photos = photosByEvent.get(e.id) || [];
     const { volunteers, participants } = countRoles(e.attendees);
@@ -214,6 +286,9 @@ export function homeView(root, _ctx) {
             <strong>${esc(e.name)}</strong>
           </span>
           <span class="badges">
+            ${e.duplicateOf ? `<a class="badge unsynced" href="#/event/${esc(e.duplicateOf)}" title="Duplicate: its roll was moved to the original event. Tap to open the original. You can delete this one." aria-label="${esc(e.name)} is a duplicate. Open the original.">${icon('copy')}<span class="wide">Duplicate</span></a>` : ''}
+            ${osgTwin(e) ? `<button type="button" class="badge unsynced merge-hint" data-merge="${esc(e.id)}" title="This may already be on the OSG Website. Tap to find it and merge." aria-label="${esc(e.name)} may already be on the OSG Website. Tap to merge.">${icon('swap')}<span class="wide">On OSG?</span></button>` : ''}
+            ${unsyncedCount(e) ? `<span class="badge unsynced outsync" title="${unsyncedCount(e)} difference${unsyncedCount(e) === 1 ? '' : 's'} from the OSG Website. Open the event to review and send.">${icon('alert')}<span class="wide">Out of sync</span></span>` : ''}
             ${e.neonEventId ? `<span class="badge neon done" title="Imported from the OSG Website">${icon('check')}<span class="wide">OSG</span></span>` : ''}
             <span class="badge ${esc(e.format)}" title="${f.tip}">${icon(f.icon)}<span class="wide">${f.label}</span></span>
           </span>
@@ -223,9 +298,9 @@ export function homeView(root, _ctx) {
           ${loc ? `<span>${icon('pin')}${esc(loc)}</span>` : ''}
         </div>
         <div class="stats">
-          <span class="pill vol" title="Volunteers">${icon('heart')}<b>${volunteers}</b><span class="wide">volunteer${volunteers === 1 ? '' : 's'}</span></span>
-          ${registered ? `<span class="pill reg" title="Registered on the OSG Website">${icon('file')}<b>${registered}</b><span class="wide">registered</span></span>` : ''}
-          <span class="pill mem" title="Participants">${icon('users')}<b>${participants}</b><span class="wide">participant${participants === 1 ? '' : 's'}</span></span>
+          ${pill(e, 'vol', volunteers, 'Volunteers', icon('heart'), `volunteer${volunteers === 1 ? '' : 's'}`)}
+          ${registered ? pill(e, 'reg', registered, 'Registered on the OSG Website', icon('file'), 'registered') : ''}
+          ${pill(e, 'mem', participants, 'Participants', icon('users'), `participant${participants === 1 ? '' : 's'}`)}
           <span class="pill hrs" title="Total volunteer hours">${icon('hourglass')}<b>${formatHours(totalVolunteerHours(e))}</b> hrs</span>
           ${needsVolunteers(e) ? `<span class="pill warn" title="Recorded hours, but no volunteers identified">${icon('alert')}<span class="wide">Assign volunteers</span></span>` : ''}
           ${
@@ -234,7 +309,7 @@ export function homeView(root, _ctx) {
               : ''
           }
         </div>
-        ${open.has(e.id) ? `<div class="who">${whoHtml(e)}${thumbsHtml(e, photos)}</div>` : ''}
+        ${open.has(e.id) ? `<div class="who">${whoHtml(e, open.get(e.id))}${thumbsHtml(e, photos)}</div>` : ''}
       </article>`;
   }
 
@@ -261,7 +336,7 @@ export function homeView(root, _ctx) {
     if (!ev || btn.disabled) return;
     btn.disabled = true;
     try {
-      const [existing, { byEvent, failed }] = await Promise.all([loadExisting(), fetchRegistrantsFor([String(ev.neonEventId)])]);
+      const [existing, { byEvent, failed }] = await Promise.all([loadExisting(), fetchRegistrantsFor([String(ev.neonEventId)], undefined, 1, { force: true })]);
       const plan = planNeonEvents([ev], existing, newId, byEvent);
       const op = plan.ops.find((o) => o.col === 'events');
       if (!op) throw new Error('nothing to import');
@@ -307,10 +382,20 @@ export function homeView(root, _ctx) {
     } catch {
       /* the next refresh tries again */
     }
+    checkCheckins();
   }
 
-  function whoHtml(e) {
-    const rows = Object.values(e.attendees || {}).sort((a, b) => a.name.localeCompare(b.name));
+  function whoHtml(e, which = 'all') {
+    if (which === 'reg') {
+      const regs = Object.values(e.registrants || {}).filter((r) => !r.cancelled && r.name).sort((x, y) => x.name.localeCompare(y.name));
+      if (!regs.length) return '<span class="muted">Nobody registered.</span>';
+      return regs
+        .map((r) => `<span class="pn"><span class="pname">${r.status === 'present' ? icon('check') : ''}${esc(r.name)}</span></span>`)
+        .join('<span class="sep">, </span>');
+    }
+    const rows = Object.values(e.attendees || {})
+      .filter((a) => which === 'all' || (which === 'vol') === (roleOf(a) === 'volunteer'))
+      .sort((a, b) => a.name.localeCompare(b.name));
     if (!rows.length) return '<span class="muted">No participants yet.</span>';
     return rows
       .map((a) => {
@@ -334,6 +419,7 @@ export function homeView(root, _ctx) {
     unsubEvents = watchEvents(r.from, r.to, (rows) => {
       events = rows;
       renderList();
+      checkCheckins();
     });
     loadNeon();
   }
@@ -346,12 +432,24 @@ export function homeView(root, _ctx) {
     }
     const imp = ev.target.closest('.neon-import');
     if (imp) return importNeon(imp);
+    const mrg = ev.target.closest('.merge-hint');
+    if (mrg) {
+      const e = events.find((x) => x.id === mrg.dataset.merge);
+      return e && openMergeDialog({ event: e, locationName: e.locationId ? locations[e.locationId] || '' : '' });
+    }
+    const who = ev.target.closest('[data-who]');
+    if (who) {
+      const id = who.closest('[data-id]').dataset.id;
+      if (open.get(id) === who.dataset.who) open.delete(id);
+      else open.set(id, who.dataset.who);
+      return renderList();
+    }
     if (ev.target.closest('a,button')) return;
     const card = ev.target.closest('[data-id]');
     if (!card) return;
     const id = card.dataset.id;
     if (open.has(id)) open.delete(id);
-    else open.add(id);
+    else open.set(id, 'all');
     renderList();
   };
   $('#fToggle', root).onclick = () => setFilterOpen(!filterOpen);
@@ -359,12 +457,38 @@ export function homeView(root, _ctx) {
   const appbar = document.querySelector('.appbar');
   if (appbar) root.style.setProperty('--ab', `${appbar.offsetHeight}px`);
   $('#fix', root).onclick = () => ((fixOnly = !fixOnly), subscribe(), setFilterOpen(false));
-  from.onchange = () => ((range = { ...range, from: from.value }), subscribe());
-  to.onchange = () => ((range = { ...range, to: to.value }), subscribe(), setFilterOpen(false));
+  // Setting the start date waits for the end date: nothing is loaded until To is set, or the user leaves the date fields.
+  let endPending = false;
+  const applyDates = () => {
+    endPending = false;
+    if (!from.value || !to.value) return;
+    range = { from: from.value, to: to.value };
+    saveRange(range);
+    subscribe();
+    setFilterOpen(false);
+  };
+  from.onchange = () => {
+    if (!from.value) return;
+    endPending = true;
+    if (!to.value || to.value < from.value) to.value = from.value; // the end picker opens on the start date
+    to.focus();
+    try {
+      to.showPicker?.();
+    } catch {
+      /* the browser wants a real click for the picker; the field is focused for typing */
+    }
+  };
+  to.onchange = applyDates;
+  $('#fBody', root).addEventListener('focusout', () =>
+    setTimeout(() => {
+      if (endPending && !$('#fBody', root)?.contains(document.activeElement)) applyDates();
+    }, 300),
+  );
   $('#chips', root).onclick = (ev) => {
     const b = ev.target.closest('[data-p]');
     if (!b) return;
     range = PRESETS.find((p) => p.key === b.dataset.p).get(ymd());
+    saveRange(range);
     subscribe();
     setFilterOpen(false);
   };

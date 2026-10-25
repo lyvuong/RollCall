@@ -16,6 +16,7 @@ import { participantsView } from './views/people.js';
 import { settingsView } from './views/settings.js';
 import { importView } from './views/import.js';
 import { neonView } from './views/neon.js';
+import { neonApi } from './lib/neonApi.js';
 import { aboutView } from './views/about.js';
 import { reportView } from './views/report.js';
 import { photosView } from './views/photos.js';
@@ -243,6 +244,7 @@ function renderShell() {
       <a href="#/" class="brand">${logo(36)}<span>OSG Activity Roll Call</span></a>
       <nav class="topnav" aria-label="Main">${navHtml}</nav>
       <span class="spacer"></span>
+      <span class="env-badge" id="envBadge" hidden title="Connected to the Neon One sandbox, not live data">Sandbox</span>
       <button class="icon-btn" id="themeBtn" type="button"></button>
     </header>
     <div id="offline" class="offline" role="status" hidden>${icon('cloudOff')} Offline — changes will sync when you reconnect.</div>
@@ -252,6 +254,35 @@ function renderShell() {
   $('#themeBtn').onclick = toggleTheme;
   themeButton();
   syncOffline();
+  flagSandbox();
+}
+
+/**
+ * Show a badge (and tab-title prefix) when this deployment is wired to a sandbox. Both the Neon One org and the
+ * Firestore project sandboxed: a fully filled "Sandbox" badge. Only one of them: a half-filled badge naming it.
+ * Silent on failure.
+ */
+async function flagSandbox() {
+  const firestore = /sandbox/i.test(auth.app.options.projectId || '');
+  let neon = false;
+  try {
+    neon = !!(await neonApi('info')).sandbox;
+  } catch {
+    /* no Worker (plain vite dev) or not signed in: Neon is not known to be sandboxed */
+  }
+  if (!neon && !firestore) return;
+  const both = neon && firestore;
+  const badge = $('#envBadge');
+  const part = neon ? 'Neon' : 'Firestore';
+  badge.hidden = false;
+  badge.classList.toggle('half', !both);
+  badge.innerHTML = both ? 'Sandbox' : `<span class="on">${part}</span><span class="off">Sandbox</span>`;
+  badge.title = both
+    ? 'Connected to the Neon One and Firestore sandboxes, not live data'
+    : `Only ${part} is the sandbox; the ${neon ? 'Firestore database is live' : 'Neon One data is live'}`;
+  document.body.classList.add('sandbox');
+  const prefix = both ? '[Sandbox]' : `[${part} Sandbox]`;
+  if (!document.title.startsWith('[')) document.title = `${prefix} ${document.title}`;
 }
 window.addEventListener('themechange', themeButton);
 

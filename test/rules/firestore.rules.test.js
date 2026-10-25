@@ -5,7 +5,7 @@ import {
   assertSucceeds,
   assertFails,
 } from '@firebase/rules-unit-testing';
-import { collection, collectionGroup, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore';
+import { collection, collectionGroup, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, setLogLevel, Timestamp, writeBatch, serverTimestamp } from 'firebase/firestore';
 
 let env;
 const future = () => Timestamp.fromMillis(Date.now() + 86_400_000);
@@ -172,6 +172,32 @@ describe('neon people copy', () => {
     const stranger = env.authenticatedContext('stranger').firestore();
     await assertFails(setDoc(doc(stranger, 'neonPeople', '9'), person));
     await assertFails(getDoc(doc(stranger, 'appMeta', 'neonPeopleSync')));
+  });
+});
+
+describe('event presence', () => {
+  const marker = (extra = {}) => ({ name: 'Pat', where: 'participants', at: serverTimestamp(), ...extra });
+
+  it('a member writes and removes only their own marker, everyone can read', async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'members', 'member2'), { code: 'GOODCODE', email: 'm2@x.org', name: 'Max' }));
+    const db = env.authenticatedContext('member1').firestore();
+    const mine = doc(db, 'events', 'e1', 'presence', 'member1');
+    await assertSucceeds(setDoc(mine, marker()));
+    await assertSucceeds(getDoc(doc(env.authenticatedContext('member2').firestore(), 'events', 'e1', 'presence', 'member1')));
+    await assertFails(setDoc(doc(db, 'events', 'e1', 'presence', 'member2'), marker()));
+    await assertFails(deleteDoc(doc(env.authenticatedContext('member2').firestore(), 'events', 'e1', 'presence', 'member1')));
+    await assertSucceeds(deleteDoc(mine));
+  });
+
+  it('rejects odd fields, a bad page, and non-members', async () => {
+    const db = env.authenticatedContext('member1').firestore();
+    const mine = doc(db, 'events', 'e1', 'presence', 'member1');
+    await assertFails(setDoc(mine, marker({ where: 'elsewhere' })));
+    await assertFails(setDoc(mine, marker({ extra: 1 })));
+    await assertFails(setDoc(mine, marker({ at: Timestamp.fromMillis(0) })));
+    const stranger = env.authenticatedContext('stranger').firestore();
+    await assertFails(setDoc(doc(stranger, 'events', 'e1', 'presence', 'stranger'), marker()));
+    await assertFails(getDoc(doc(stranger, 'events', 'e1', 'presence', 'member1')));
   });
 });
 

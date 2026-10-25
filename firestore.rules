@@ -113,6 +113,20 @@ service cloud.firestore {
         && request.resource.data.endTime > request.resource.data.startTime;
       allow delete: if isMember();
 
+      // Who has the event open right now: each member writes only their own marker, refreshed while the page is open.
+      match /presence/{uid} {
+        allow read: if isMember();
+        allow create, update: if isMember()
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['name', 'where', 'at'])
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 80
+          && request.resource.data.where in ['participants', 'details']
+          && request.resource.data.at == request.time;
+        allow delete: if isMember() && request.auth.uid == uid;
+      }
+
       // Photo metadata; the image files themselves live in R2 (see worker/index.js).
       match /photos/{photoId} {
         allow read: if isMember();

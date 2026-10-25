@@ -151,6 +151,8 @@ The site is hosted on **Cloudflare Pages** with an **R2** bucket for photos.
    | `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` | Build variable | Baked into the bundle at build time. Firebase web config is not secret. |
    | `FIREBASE_PROJECT_ID` | Runtime variable | Used by the API to verify ID tokens. |
    | `NEON_ORG_ID`, `NEON_API_KEY` | Runtime **secret** | Only needed for the Neon One import. |
+   | `NEON_ALLOW_WRITES` | Runtime variable (optional) | `1` lets the app send changes to a live Neon org. Leave it unset until you want that; a sandbox org always allows writes. |
+   | `NEON_AUTO_RECONCILE` | Runtime variable (optional) | `1` lets the app update its own records when an event is opened: bring in check-ins made on the OSG Website, mark the rest Missing on finished events, add registered names, drop duplicate roll entries. Leave it unset on a live org until you have tried it; a sandbox org always has it on. |
 
 5. **Bindings:** add an **R2 bucket binding** named `PHOTOS` (Settings → Bindings).
 6. Every push to the production branch builds and deploys; other branches get preview builds. Production and Preview variables are separate, so set them in both if you test on previews.
@@ -180,6 +182,12 @@ NEON_ORG_ID=your-org-id
 NEON_API_KEY=your-api-key
 FIREBASE_PROJECT_ID=your-firebase-project-id
 ```
+
+### Sandbox vs. live
+
+Local work (`npm run cf:preview`) reads `.dev.vars`, which points at the Neon One **sandbox** org (`ourstompinggroundsandbox`), so debugging and new features, including future write flows, never touch live data. Generate an API key in the sandbox org (Settings → Developer → API keys) and paste it as `NEON_API_KEY`.
+
+The live org's values are kept in `.dev.vars.production` (also git-ignored). To run locally against live, read-only checks only, copy it over `.dev.vars` and restore the sandbox values afterwards. Cloudflare **Production** keeps the live org; to test a deployed build against the sandbox, set the sandbox values on the **Preview** tab instead.
 
 Do **not** set `NEON_BASE_URL` (in `.dev.vars` or Cloudflare). The default `https://api.neoncrm.com/v2` is correct, and a wrong value, such as the documentation site, would send your credentials to the wrong host.
 

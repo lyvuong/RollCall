@@ -1,8 +1,12 @@
-import { watchEvent, watchPeople, setAttendance, setRole, addPerson, markRegistrant, saveRegistrants, searchNeonPeople, linkPerson, watchRoster } from '../data.js';
+import { watchEvent, watchLocations, watchPeople, setAttendance, setRole, addPerson, markRegistrant, saveRegistrants, setNeonSeen, searchNeonPeople, linkPerson, watchRoster } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { fetchNeonRegistrants } from '../lib/neonApi.js';
 import { registrantUpdates, isImminent } from '../lib/neon.js';
+import { makeReconciler } from '../lib/reconcile.js';
 import { icon } from '../lib/icons.js';
+import { mountNeonSync } from './neonSync.js';
+import { renderMergeSlot } from './neonMerge.js';
+import { mountPresence } from '../lib/presence.js';
 import { rosterMap, fixedRole as fixedRoleIn } from '../lib/roster.js';
 import { ymd, countRoles, personKind, roleOf, formatDay, eventHours, formatHours, totalVolunteerHours } from '../lib/time.js';
 
@@ -20,8 +24,33 @@ export function participantsView(root, ctx, eventId) {
   const removed = new Set(); // staged removals, applied on Done
   const roleEdits = new Map(); // staged role changes (id -> role), applied on Done
   const regEdits = new Map(); // staged Here / Missing choices for registered names (key -> status), applied on Done
+  const addEdits = new Map(); // staged adds from the search box (id 'add:...' -> {name, type, person|neon|isNew}), applied on Done
   let regQ = ''; // filter for a long registered list
-  const regStatus = (r) => regEdits.get(r.key) ?? (r.status || 'pending');
+  /**
+   * The registered row (not cancelled, not yet Here) that a person found by search stands for: same OSG account, else same
+   * name. Adding that person confirms the row as Here instead of leaving it Unconfirmed beside a roll entry.
+   */
+  const registrantFor = (name, accountId) =>
+    Object.entries(event?.registrants || {}).find(
+      ([key, r]) =>
+        !r.cancelled &&
+        regStatus({ key, ...r }) !== 'present' &&
+        ((accountId && r.accountId && String(r.accountId) === String(accountId)) || r.name.toLowerCase() === String(name).toLowerCase()),
+    );
+  /** On the roll (saved, not staged for removal) under this name? */
+  /** Roll entries staged to leave: removed by hand, or named on a registered row just set to Missing. */
+  const goneIds = () => {
+    const leaving = (k, r) => regEdits.get(k) === 'missing' || (regEdits.get(k) === 'pending' && r.status === 'present'); // staged Missing, or un-confirmed Here
+    const missing = new Set(Object.entries(event?.registrants || {}).filter(([k, r]) => leaving(k, r)).map(([, r]) => r.name.toLowerCase()));
+    const out = new Set(removed);
+    for (const [id, a] of Object.entries(event?.attendees || {})) if (missing.has(a.name.toLowerCase())) out.add(id);
+    return out;
+  };
+  const onRollWith = (gone, name) => Object.entries(event?.attendees || {}).some(([id, a]) => !gone.has(id) && a.name.toLowerCase() === String(name).toLowerCase());
+  const onRoll = (name) => onRollWith(goneIds(), name);
+  /** The saved status, except a confirmed Here whose person has just been removed from the roll counts as Missing. */
+  const baseStatus = (r) => (r.status === 'present' && !onRollWith(removed, r.name) ? 'missing' : r.status || 'pending');
+  const regStatus = (r) => regEdits.get(r.key) ?? baseStatus(r);
   /** Known members have a fixed role at every event: a volunteer is always a volunteer, staff always a participant. */
   const fixedRole = (name) => fixedRoleIn(whoIs, name);
   const effRole = (id, a) => fixedRole(a?.name) || roleEdits.get(id) || roleOf(a);
@@ -35,12 +64,29 @@ export function participantsView(root, ctx, eventId) {
   /** Id of the signed-in staff member's entry already saved on the event, if any. */
   const myEntryId = () =>
     selfName ? Object.entries(event?.attendees || {}).find(([, a]) => a.name.toLowerCase() === selfName.toLowerCase())?.[0] : undefined;
+  /** Registered names staged as Here but not saved yet, shown among the participants as a preview (id 'reg:<key>'). */
+  const stagedHere = () => {
+    const have = new Set(Object.values(event?.attendees || {}).map((a) => a.name.toLowerCase()));
+    const adds = Object.entries(Object.fromEntries(addEdits))
+      .filter(([, a]) => !have.has(a.name.toLowerCase()))
+      .map(([id, a]) => [id, { name: a.name, type: a.type, role: 'participant', staged: true }]);
+    return Object.fromEntries([
+      ...adds,
+      ...Object.entries(event?.registrants || {})
+        .filter(([key, r]) => !r.cancelled && regEdits.get(key) === 'present' && !have.has(r.name.toLowerCase()))
+        .map(([key, r]) => [`reg:${key}`, { name: r.name, type: people.find((x) => x.name.toLowerCase() === r.name.toLowerCase())?.type || 'community', role: 'participant', staged: true }]),
+    ]);
+  };
   const fullAtt = () => ({
     ...(event?.attendees || {}),
+    ...stagedHere(),
     ...(selfStaged ? { [selfId()]: { name: selfName, type: selfPerson()?.type || 'osg', role: selfRole } } : {}),
   });
   const unsubs = [];
   let regTried = false;
+
+  // Check-ins made on the OSG Website become Here and join the roll (see lib/reconcile.js). Rows with an unsaved tap are left alone.
+  const reconcile = makeReconciler({ eventId, getEvent: () => event, getPeople: () => ({ people, loaded: peopleLoaded }), skip: (key) => regEdits.has(key) });
 
   /**
    * Fetch an event's registered names once when the page opens: for an event with none stored (imported earlier, or
@@ -83,8 +129,12 @@ export function participantsView(root, ctx, eventId) {
   root.innerHTML = `
     <section class="bar">
       <a class="btn ghost" href="#/">${icon('back')} Events</a>
-      <a class="btn ghost" href="#/event/${esc(eventId)}">${icon('edit')} Event details</a>
+      <span class="bar-actions">
+        <span class="sync-slot"><span id="mergeSlot"></span><span id="syncSlot"></span></span>
+        <a class="btn ghost" href="#/event/${esc(eventId)}">${icon('edit')} Event details</a>
+      </span>
     </section>
+    <div id="presence" class="pres-row"></div>
     <p id="state" class="muted">Loading…</p>
     <div id="body" hidden>
       <h1 id="title" style="margin-bottom:4px"></h1>
@@ -139,7 +189,8 @@ export function participantsView(root, ctx, eventId) {
     $('#title', root).textContent = event.name;
 
     const mine = myEntryId();
-    const selfOn = selfStaged || (mine && !removed.has(mine));
+    const gone = goneIds();
+    const selfOn = selfStaged || (mine && !gone.has(mine));
     const tog = $('#selfToggle', root);
     if (tog) {
       tog.setAttribute('aria-pressed', String(!!selfOn));
@@ -148,7 +199,7 @@ export function participantsView(root, ctx, eventId) {
     const att = fullAtt();
     const kept = Object.fromEntries(
       Object.entries(att)
-        .filter(([id]) => !removed.has(id))
+        .filter(([id]) => !gone.has(id))
         .map(([id, a]) => [id, { ...a, role: effRole(id, a) }]),
     );
     const { volunteers, participants } = countRoles(kept);
@@ -159,7 +210,7 @@ export function participantsView(root, ctx, eventId) {
         ? `<s class="old">${formatHours(saved)}</s> <b>${formatHours(next)}</b> hrs`
         : `${formatHours(saved)} hrs`;
     $('#sub', root).innerHTML = `${esc(formatDay(event.date))} · ${icon('clock')} ${formatHours(eventHours(event.startTime, event.endTime))} hrs · ${icon('heart')} ${volunteers} · ${icon('users')} ${participants} · ${icon('hourglass')} ${hoursHtml}`;
-    const pending = removed.size + roleEdits.size + regEdits.size + (selfStaged ? 1 : 0);
+    const pending = removed.size + roleEdits.size + regEdits.size + addEdits.size + (selfStaged ? 1 : 0);
     $('#done', root).textContent = pending ? `Save ${pending} change${pending === 1 ? '' : 's'} & done` : 'Done';
     $('#listTitle', root).innerHTML = `${icon('users')} Participants (${Object.keys(att).length})`;
 
@@ -200,11 +251,11 @@ export function participantsView(root, ctx, eventId) {
           .map((a, i) => {
             const vol = effRole(a.id, a) === 'volunteer';
             const kind = personKind(a.type);
-            const gone = removed.has(a.id);
+            const isGone = gone.has(a.id);
             const nm = esc(a.name);
             const fixed = fixedRole(a.name);
             const whoIcon = whoIs.get(a.name.toLowerCase()) === 'staff' ? `<span class="who" title="Staff">${icon('shield')}</span>` : '';
-            return `<span class="pn ${kind}${whoIs.get(a.name.toLowerCase()) === 'staff' ? ' staff' : ''}${gone ? ' gone' : ''}"><button type="button" class="pname" data-role="${esc(a.id)}" aria-pressed="${vol}" title="${KIND[kind].label} · ${fixed ? (vol ? 'Volunteer' : 'Staff') : vol ? 'Volunteer (tap for Participant)' : 'Participant (tap for Volunteer)'}">${vol ? icon('heart') : ''}${whoIcon}${nm}</button><button type="button" class="mb del${gone ? ' on' : ''}" data-del="${esc(a.id)}" aria-label="${gone ? 'Keep' : 'Remove'} ${nm}" title="${gone ? 'Undo remove' : 'Remove'}">${icon(gone ? 'plus' : 'minus')}</button>${i < cur.length - 1 ? '<span class="sep">,</span>' : ''}</span>`;
+            return `<span class="pn ${kind}${whoIs.get(a.name.toLowerCase()) === 'staff' ? ' staff' : ''}${isGone ? ' gone' : ''}${a.staged ? ' staged' : ''}"><button type="button" class="pname" data-role="${esc(a.id)}" aria-pressed="${vol}" title="${KIND[kind].label} · ${fixed ? (vol ? 'Volunteer' : 'Staff') : vol ? 'Volunteer (tap for Participant)' : 'Participant (tap for Volunteer)'}">${vol ? icon('heart') : ''}${whoIcon}${nm}</button><button type="button" class="mb del${isGone ? ' on' : ''}" data-del="${esc(a.id)}" aria-label="${isGone ? 'Keep' : 'Remove'} ${nm}" title="${isGone ? 'Undo remove' : 'Remove'}">${icon(isGone ? 'plus' : 'minus')}</button>${i < cur.length - 1 ? '<span class="sep">,</span>' : ''}</span>`;
           })
           .join(' ')
       : `<span class="muted">No participants yet. Search above to add people.</span>`;
@@ -217,9 +268,10 @@ export function participantsView(root, ctx, eventId) {
       return;
     }
     // OSG Website people come first; a saved person they stand for is shown once, as the OSG Website row.
-    const fromNeon = neonHits.filter((n) => !att[savedFor(n)?.id]);
+    const stagedNames = new Set(Object.values(att).filter((a) => a.staged).map((a) => a.name.toLowerCase()));
+    const fromNeon = neonHits.filter((n) => !att[savedFor(n)?.id] && !stagedNames.has(n.name.toLowerCase()));
     const shownAsNeon = new Set(neonHits.map((n) => savedFor(n)?.id).filter(Boolean));
-    const hits = people.filter((p) => !att[p.id] && !shownAsNeon.has(p.id) && p.name.toLowerCase().includes(term));
+    const hits = people.filter((p) => !att[p.id] && !stagedNames.has(p.name.toLowerCase()) && !shownAsNeon.has(p.id) && p.name.toLowerCase().includes(term));
     const rows = hits.slice(0, MAX_RESULTS);
     const exact = people.some((p) => p.name.toLowerCase() === term);
     res.innerHTML =
@@ -273,26 +325,36 @@ export function participantsView(root, ctx, eventId) {
       const r = event.registrants?.[t.dataset.reg];
       if (!r) return;
       // Staged only: nothing is saved (or added to the roll) until Done.
-      const next = regStatus({ key: t.dataset.reg, ...r }) === t.dataset.st ? 'pending' : t.dataset.st;
-      if (next === (r.status || 'pending')) regEdits.delete(t.dataset.reg);
+      const shown = regStatus({ key: t.dataset.reg, ...r });
+      // Tapping the choice already staged on this row cancels it, back to what is saved.
+      if (regEdits.has(t.dataset.reg) && shown === t.dataset.st) {
+        regEdits.delete(t.dataset.reg);
+        render();
+        return;
+      }
+      const next = shown === t.dataset.st ? 'pending' : t.dataset.st;
+      if (next === baseStatus(r)) regEdits.delete(t.dataset.reg);
       else regEdits.set(t.dataset.reg, next);
       render();
       return;
     }
     if (t.dataset.del) {
       const id = t.dataset.del;
-      if (selfStaged && id === selfId()) selfStaged = false;
+      if (id.startsWith('reg:')) regEdits.delete(id.slice(4));
+      else if (id.startsWith('add:')) addEdits.delete(id);
+      else if (selfStaged && id === selfId()) selfStaged = false;
       else if (removed.has(id)) removed.delete(id);
       else removed.add(id);
       render();
     } else if (t.id === 'done') {
       const saved = event.attendees || {};
-      const jobs = [...removed].filter((id) => saved[id]).map((id) => setAttendance(eventId, { id, ...saved[id] }, false));
-      for (const [id, role] of roleEdits) if (saved[id] && !removed.has(id)) jobs.push(setRole(eventId, id, role));
+      const leaving = goneIds();
+      const jobs = [...leaving].filter((id) => saved[id]).map((id) => setAttendance(eventId, { id, ...saved[id] }, false));
+      for (const [id, role] of roleEdits) if (saved[id] && !leaving.has(id)) jobs.push(setRole(eventId, id, role));
       // Known staff and volunteers get their fixed role, whatever an earlier roll recorded.
       for (const [id, a] of Object.entries(saved)) {
         const want = fixedRole(a.name);
-        if (want && want !== roleOf(a) && !removed.has(id) && !roleEdits.has(id)) jobs.push(setRole(eventId, id, want));
+        if (want && want !== roleOf(a) && !leaving.has(id) && !roleEdits.has(id)) jobs.push(setRole(eventId, id, want));
       }
       if (selfStaged) {
         let me = selfPerson();
@@ -302,6 +364,28 @@ export function participantsView(root, ctx, eventId) {
           me = created.person;
         }
         jobs.push(setAttendance(eventId, me, true, roleEdits.get(selfId()) || selfRole));
+      }
+      for (const a of addEdits.values()) {
+        let person = a.person;
+        if (a.neon) {
+          person = savedFor(a.neon);
+          if (person) {
+            if (!person.neonAccountId) linkPerson(person.id, a.neon.neonAccountId).catch(() => toast('Could not link person.'));
+          } else {
+            const created = addPerson(a.name, 'community', { neonAccountId: a.neon.neonAccountId });
+            created.done.catch(() => toast('Could not save person.'));
+            person = created.person;
+          }
+        } else if (a.isNew) {
+          const created = addPerson(a.name, a.type);
+          created.done.catch(() => toast('Could not save person.'));
+          person = created.person;
+        }
+        jobs.push(setAttendance(eventId, person, true, fixedRole(person.name) || 'participant'));
+      }
+      // A person taken off the roll is no longer confirmed Here: their registered name becomes Missing.
+      for (const [key, r] of Object.entries(event.registrants || {})) {
+        if (r.status === 'present' && !regEdits.has(key) && !onRoll(r.name)) jobs.push(markRegistrant(eventId, { key, ...r }, 'missing', null));
       }
       for (const [key, next] of regEdits) {
         const r = event.registrants?.[key];
@@ -314,7 +398,7 @@ export function participantsView(root, ctx, eventId) {
           if (there) person = { id: there[0], name: there[1].name, alreadyThere: true };
           else if (known) person = known;
           else {
-            const created = addPerson(r.name, 'community');
+            const created = addPerson(r.name, 'community', r.accountId ? { neonAccountId: r.accountId } : undefined);
             created.done.catch(() => toast('Could not save person.'));
             person = created.person;
           }
@@ -324,10 +408,30 @@ export function participantsView(root, ctx, eventId) {
       removed.clear();
       roleEdits.clear();
       regEdits.clear();
-      Promise.all(jobs).catch(fail);
-      location.hash = '#/';
+      addEdits.clear();
+      const saving = Promise.all(jobs).catch(fail);
+      const leave = () => (location.hash = '#/');
+      if (!event.neonEventId) return leave();
+      // Linked to the OSG Website: if saving left it out of sync, stay so the changes can be sent first.
+      t.disabled = true;
+      t.textContent = 'Saving…';
+      Promise.race([saving, new Promise((r) => setTimeout(r, 1500))])
+        .then(() => new Promise((r) => setTimeout(r, 300))) // let the page see its own saved data
+        .then(() => sync.review(leave))
+        .catch(() => false)
+        .then((stayed) => {
+          if (stayed) {
+            t.disabled = false;
+            t.textContent = 'Done';
+          } else leave();
+        });
+      return;
     } else if (t.dataset.role) {
       const id = t.dataset.role;
+      if (id.startsWith('reg:') || id.startsWith('add:')) {
+        toast('Save first, then change their role.');
+        return;
+      }
       if (fixedRole(att[id]?.name)) {
         toast(fixedRole(att[id].name) === 'volunteer' ? 'Volunteers are always volunteers.' : 'Staff take part as participants, not volunteers.');
         return;
@@ -341,23 +445,29 @@ export function participantsView(root, ctx, eventId) {
       render();
     } else if (t.dataset.add) {
       const p = people.find((x) => x.id === t.dataset.add);
-      if (p) {
-        setAttendance(eventId, p, true, fixedRole(p.name) || 'participant').catch(fail);
-        toast(`${p.name} added as participant · ${Object.keys(att).length + 1} total`);
+      const reg = p && registrantFor(p.name, p.neonAccountId);
+      if (reg) {
+        regEdits.set(reg[0], 'present');
+        toast(`${p.name} will be marked Here when you save`);
+        render();
+      } else if (p) {
+        addEdits.set(`add:${p.id}`, { name: p.name, type: p.type, person: p });
+        toast(`${p.name} will be added when you save`);
+        render();
       }
     } else if (t.dataset.neon) {
       const n = neonHits.find((x) => x.neonAccountId === t.dataset.neon);
-      if (n) {
-        let person = savedFor(n);
-        if (person) {
-          if (!person.neonAccountId) linkPerson(person.id, n.neonAccountId).catch(() => toast('Could not link person.'));
-        } else {
-          const created = addPerson(n.name, 'community', { neonAccountId: n.neonAccountId });
-          created.done.catch(() => toast('Could not save person.'));
-          person = created.person;
-        }
-        setAttendance(eventId, person, true, fixedRole(person.name) || 'participant').catch(fail);
-        toast(`${n.name} added as participant · ${Object.keys(att).length + 1} total`);
+      const reg = n && registrantFor(n.name, n.neonAccountId);
+      if (reg) {
+        regEdits.set(reg[0], 'present');
+        toast(`${n.name} will be marked Here when you save`);
+        q = '';
+        neonHits = [];
+        $('#q', root).value = '';
+        render();
+      } else if (n) {
+        addEdits.set(`add:n${n.neonAccountId}`, { name: n.name, type: savedFor(n)?.type || 'community', neon: n });
+        toast(`${n.name} will be added when you save`);
         q = '';
         neonHits = [];
         $('#q', root).value = '';
@@ -366,12 +476,20 @@ export function participantsView(root, ctx, eventId) {
     } else if (t.dataset.new) {
       const name = q.trim().replace(/\s+/g, ' ');
       if (!name) return;
-      const created = addPerson(name, t.dataset.new);
-      created.done.catch(() => toast('Could not save person.'));
-      setAttendance(eventId, created.person, true, fixedRole(created.person.name) || 'participant').catch(fail);
-      toast(`${name} added as new ${t.dataset.new === 'osg' ? 'OSG' : 'community'} participant · ${Object.keys(att).length + 1} total`);
+      const reg = registrantFor(name, '');
+      if (reg) {
+        regEdits.set(reg[0], 'present');
+        toast(`${name} will be marked Here when you save`);
+        q = '';
+        $('#q', root).value = '';
+        render();
+        return;
+      }
+      addEdits.set(`add:new:${name.toLowerCase()}`, { name, type: t.dataset.new, isNew: true });
+      toast(`${name} will be added when you save`);
       q = '';
       $('#q', root).value = '';
+      render();
     }
   });
 
@@ -401,11 +519,25 @@ export function participantsView(root, ctx, eventId) {
     }, 250);
   };
 
+  let locations = [];
+  const renderMerge = () => renderMergeSlot($('#mergeSlot', root), event, locations.find((l) => l.id === event?.locationId)?.name || '');
+  const sync = mountNeonSync($('#syncSlot', root), {
+    getEvent: () => event,
+    getLocationName: () => locations.find((l) => l.id === event?.locationId)?.name || '',
+    onSnapshot: reconcile,
+  });
+
   unsubs.push(
+    watchLocations((rows) => {
+      locations = rows;
+      renderMerge();
+      sync.update();
+    }),
     watchPeople((rows) => {
       people = rows;
       peopleLoaded = true;
       render();
+      reconcile.again();
     }),
     watchRoster((rows) => {
       whoIs = rosterMap(rows);
@@ -414,11 +546,17 @@ export function participantsView(root, ctx, eventId) {
     watchEvent(eventId, (e) => {
       event = e;
       render();
+      renderMerge();
+      sync.update();
     }),
   );
 
+  const stopPresence = ctx?.user ? mountPresence($('#presence', root), { eventId, uid: ctx.user.uid, name: selfName || ctx.user.email || 'Someone', where: 'participants' }) : () => {};
+
   return () => {
+    stopPresence();
     clearTimeout(neonTimer);
+    sync.destroy();
     unsubs.forEach((u) => u());
   };
 }

@@ -59,7 +59,7 @@ export function reportView(root, _ctx) {
     const mine = ++seq;
     count.textContent = 'Counting…';
     try {
-      const rows = await fetchEventsInRange(range.from, range.to);
+      const rows = (await fetchEventsInRange(range.from, range.to)).filter((e) => !e.duplicateOf); // moved-out duplicates are empty
       if (mine !== seq) return;
       events = rows;
       count.textContent = `${rows.length} event${rows.length === 1 ? '' : 's'} in this range.`;

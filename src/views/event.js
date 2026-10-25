@@ -6,8 +6,13 @@ import {
   updateEvent,
   deleteEvent,
   fetchRecentEvents,
+  watchPeople,
 } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
+import { mountNeonSync } from './neonSync.js';
+import { renderMergeSlot } from './neonMerge.js';
+import { mountPresence } from '../lib/presence.js';
+import { makeReconciler } from '../lib/reconcile.js';
 import { icon } from '../lib/icons.js';
 import { matchLocation } from '../lib/locations.js';
 import { ymd, eventHours, countRoles, totalVolunteerHours, personKind, roleOf, needsVolunteers, formatHours, formatTime } from '../lib/time.js';
@@ -20,7 +25,7 @@ const initials = (name) =>
   name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
 const tint = (name) => [...name].reduce((a, c) => a + c.charCodeAt(0), 0) % 4;
 
-export function eventView(root, _ctx, eventId) {
+export function eventView(root, ctx, eventId) {
   const isNew = !eventId;
   let event = isNew ? null : undefined; // undefined = loading, null = not found
   let locations = [];
@@ -36,7 +41,9 @@ export function eventView(root, _ctx, eventId) {
   root.innerHTML = `
     <section class="bar">
       <a class="btn ghost" href="#/">${icon('back')} Events</a>
+      <span class="sync-slot"><span id="mergeSlot"></span><span id="syncSlot"></span></span>
     </section>
+    <div id="presence" class="pres-row"></div>
     <h1 id="title" class="evt-title" ${isNew ? '' : 'hidden'}>${isNew ? 'New event' : 'Event'}</h1>
     <p id="state" class="muted">${isNew ? '' : 'Loading…'}</p>
     <div id="body" class="${isNew ? '' : 'evt'}" hidden>
@@ -319,10 +326,26 @@ export function eventView(root, _ctx, eventId) {
 
   /* ----- subscriptions ----- */
 
+  const renderMerge = () =>
+    renderMergeSlot($('#mergeSlot', root), isNew ? null : event, locations.find((l) => l.id === event?.locationId)?.name || '');
+
+  let people = [];
+  let peopleLoaded = false;
+  // Check-ins made on the OSG Website become Here and join the roll, whichever page of the event is opened (see lib/reconcile.js).
+  const reconcile = isNew ? null : makeReconciler({ eventId, getEvent: () => event, getPeople: () => ({ people, loaded: peopleLoaded }) });
+  const sync = isNew
+    ? null
+    : mountNeonSync($('#syncSlot', root), {
+        getEvent: () => event,
+        getLocationName: () => locations.find((l) => l.id === event?.locationId)?.name || '',
+        onSnapshot: reconcile,
+      });
+
   unsubs.push(
     watchLocations((rows) => {
       locations = rows;
       if (formReady || isNew) renderLocations();
+      sync?.update();
     }),
   );
 
@@ -332,6 +355,13 @@ export function eventView(root, _ctx, eventId) {
     showBody();
     nameEl.focus();
   } else {
+    unsubs.push(
+      watchPeople((rows) => {
+        people = rows;
+        peopleLoaded = true;
+        reconcile?.again();
+      }),
+    );
     unsubs.push(
       watchEvent(eventId, (e) => {
         event = e;
@@ -348,9 +378,14 @@ export function eventView(root, _ctx, eventId) {
         }
         showBody();
         renderSummary();
+        renderMerge();
+        sync?.update();
       }),
     );
   }
 
-  return () => unsubs.forEach((u) => u());
+  const stopPresence =
+    !isNew && ctx?.user ? mountPresence($('#presence', root), { eventId, uid: ctx.user.uid, name: (ctx.name || '').trim() || ctx.user.email || 'Someone', where: 'details' }) : () => {};
+
+  return () => (stopPresence(), sync?.destroy(), unsubs.forEach((u) => u()));
 }

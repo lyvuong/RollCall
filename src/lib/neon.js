@@ -1,5 +1,6 @@
 import { parseDate, parseTime } from './importer.js';
 import { toMinutes, addDays } from './time.js';
+import { matchParticipants, isCancelled } from './neonMerge.js';
 
 const lower = (s) => String(s || '').trim().toLowerCase();
 const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
@@ -15,6 +16,18 @@ export function inferFormat(name) {
   const person = /in[- ]?person/.test(t);
   if (/hybrid/.test(t) || (virtual && person)) return 'both';
   return virtual ? 'virtual' : 'in-person';
+}
+
+/**
+ * Start and end ('HH:MM') for a Neon event. Neon events may lack times; the rules need end > start, so a missing
+ * start becomes 09:00 and a missing or backwards end becomes a one-hour slot.
+ */
+export function neonSlot(n) {
+  let start = parseTime(n.startTime) || DEFAULT_START;
+  let end = parseTime(n.endTime);
+  if (!end || toMinutes(end) <= toMinutes(start)) end = hhmm(Math.min(toMinutes(start) + 60, 23 * 60 + 59));
+  if (toMinutes(end) <= toMinutes(start)) start = hhmm(toMinutes(end) - 1);
+  return { start, end };
 }
 
 /** Registrants not already stored in `current`, as the Firestore map {attendeeId: {name, accountId, status:'pending'}}. */
@@ -115,11 +128,7 @@ export function planNeonEvents(neonEvents, existing, newId, registrants = {}) {
     if (seen.has(id)) { row('skip', 'Duplicate in Neon results', label); continue; }
     seen.add(id);
 
-    let start = parseTime(n.startTime) || DEFAULT_START;
-    let end = parseTime(n.endTime);
-    // Neon events may lack times; the rules need end > start, so default to a one-hour slot.
-    if (!end || toMinutes(end) <= toMinutes(start)) end = hhmm(Math.min(toMinutes(start) + 60, 23 * 60 + 59));
-    if (toMinutes(end) <= toMinutes(start)) start = hhmm(toMinutes(end) - 1);
+    const { start, end } = neonSlot(n);
 
     if (byNeon.has(id)) {
       const cur = byNeon.get(id);
@@ -212,4 +221,130 @@ export function emptyPastNeonEvents(events, today) {
   return events
     .filter((e) => e.neonEventId && e.date < today && !Object.keys(e.attendees || {}).length && !(Number(e.volunteerHours) > 0))
     .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+}
+
+const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+
+/**
+ * Compare a RollCall event with what the OSG Website (Neon) holds, in the direction RollCall -> Neon.
+ *   event       local event ({name, date, startTime, endTime, registrants?})
+ *   neonEvent   {name, date, endDate?, startTime, endTime, location} (times 'HH:MM', '' when Neon has none)
+ *   attendees   Neon attendees [{attendeeId, registrationId, name, markedAttended}] or null when not loaded
+ *   locationName  the local location's name ('' for virtual or unset)
+ * Times and locations RollCall merely defaulted are not differences: a field is only compared when both sides
+ * have a value. Registrants still 'pending' are never pushed; 'present' -> attended, 'missing' -> not attended.
+ * People on the roll who are registered on Neon but not marked attended are checked in too; people on the roll
+ * with no Neon registration at all (found by name) are walk-ins to register.
+ * Returns { details:[{field,label,local,neon}], checkins:[{attendeeId,registrationId,name,attended}],
+ *           walkins:[{personId,name}], count, inSync }.
+ */
+export function neonSyncPlan(event, neonEvent, attendees, locationName = '') {
+  const details = [];
+  const add = (field, label, local, neon) => details.push({ field, label, local, neon });
+  if (clean(event.name) !== clean(neonEvent.name)) add('name', 'Name', clean(event.name), clean(neonEvent.name));
+  if (event.date && event.date !== neonEvent.date) add('date', 'Date', event.date, neonEvent.date);
+  if (event.startTime && neonEvent.startTime && event.startTime !== neonEvent.startTime) add('startTime', 'Start', event.startTime, neonEvent.startTime);
+  if (event.endTime && neonEvent.endTime && event.endTime !== neonEvent.endTime) add('endTime', 'End', event.endTime, neonEvent.endTime);
+  const loc = clean(locationName);
+  if (loc && lower(loc) !== lower(clean(neonEvent.location))) add('location', 'Location', loc, clean(neonEvent.location));
+
+  const checkins = [];
+  const walkins = [];
+  if (attendees) {
+    const byId = new Map(attendees.map((a) => [String(a.attendeeId), a]));
+    const matches = matchParticipants(event.attendees, attendees);
+    const onRoll = new Set(matches.filter((m) => m.attendee).map((m) => String(m.attendee.attendeeId)));
+    const rollKnown = event.attendees !== undefined;
+    const regs = event.registrants || {};
+    for (const [key, r] of Object.entries(regs)) {
+      const a = byId.get(String(key));
+      if (r.cancelled || !a?.registrationId) continue;
+      const status = r.status || 'pending';
+      const neon = a.markedAttended === true;
+      // Here -> attended (while still on the roll), Missing -> not attended. Unconfirmed sends nothing, except that
+      // taking back a Here (Neon attended as of the last sync, still Unconfirmed now) unchecks them.
+      let want = null;
+      if (status === 'present') want = !rollKnown || onRoll.has(String(key));
+      else if (status === 'missing') want = false;
+      else if (neon && r.neonSeen === true) want = false;
+      if (want !== null && want !== neon) {
+        checkins.push({ attendeeId: String(key), registrationId: String(a.registrationId), name: r.name || a.name, attended: want });
+      }
+    }
+    const decided = new Set(checkins.map((c) => c.attendeeId));
+    for (const m of matches) {
+      if (!m.attendee) walkins.push({ personId: m.personId, name: m.name });
+      else if (!regs[m.attendee.attendeeId] && !m.attendee.markedAttended && m.attendee.registrationId && !decided.has(String(m.attendee.attendeeId))) {
+        decided.add(String(m.attendee.attendeeId));
+        checkins.push({ attendeeId: String(m.attendee.attendeeId), registrationId: String(m.attendee.registrationId), name: m.name, attended: true });
+      }
+    }
+    checkins.sort((x, y) => x.name.localeCompare(y.name));
+  }
+  const count = details.length + checkins.length + walkins.length;
+  return { details, checkins, walkins, count, inSync: count === 0 };
+}
+
+/**
+ * What RollCall should write down after looking at the OSG Website's attendees, without asking anyone:
+ *   {type:'add',  key, entry}   an OSG registration RollCall has no row for yet (already Here when they are on the roll)
+ *   {type:'pull', key, name}    checked in on the OSG Website while still Unconfirmed here: becomes Here, joins the roll
+ *   {type:'miss', key}          a finished event where the OSG Website reports attendance and this person is not among those
+ *                               attended: they are Missing, not merely Unconfirmed
+ *   {type:'ack',  key, seen}    both sides already agree: remember Neon's value (`neonSeen`)
+ * `neonSeen` is what Neon said at the last sync. It is how an attended flag that was set on the OSG Website (pull) is told
+ * from one RollCall is about to change (push): the three RollCall states Unconfirmed / Here / Missing map to Neon's two.
+ */
+export function neonReconcile(event, attendees, today = '') {
+  if (!attendees) return [];
+  const regs = event.registrants || {};
+  const onRoll = new Set(
+    matchParticipants(event.attendees, attendees)
+      .filter((m) => m.attendee)
+      .map((m) => String(m.attendee.attendeeId)),
+  );
+  const ops = [];
+  // Attendance counts as reported once the day has passed and Neon has anyone marked attended.
+  const reported = !!today && event.date < today && attendees.some((a) => a.markedAttended === true && !isCancelled(a.status));
+  for (const a of attendees) {
+    const key = String(a.attendeeId || '');
+    const name = String(a.name || '').replace(/\s+/g, ' ').trim();
+    if (!key || !name || isCancelled(a.status)) continue;
+    const neon = a.markedAttended === true;
+    const r = regs[key];
+    if (!r) {
+      const here = onRoll.has(key);
+      const missing = !here && !neon && reported;
+      ops.push({ type: 'add', key, entry: { name, accountId: String(a.accountId || ''), status: here ? 'present' : missing ? 'missing' : 'pending', ...(here ? { neonSeen: neon } : missing ? { neonSeen: false } : {}) } });
+      if (!here && neon) ops.push({ type: 'pull', key, name });
+      continue;
+    }
+    if (r.cancelled) continue;
+    const status = r.status || 'pending';
+    if (status === 'pending' && neon && r.neonSeen !== true) ops.push({ type: 'pull', key, name: r.name || name });
+    else if (status === 'pending' && !neon && reported) ops.push({ type: 'miss', key });
+    else if (r.neonSeen !== neon && ((status === 'present' && neon) || (status !== 'present' && !neon))) ops.push({ type: 'ack', key, seen: neon });
+  }
+  return ops;
+}
+
+/** The Neon event patch ({name?, date?, endDate?, startTime?, endTime?, location?}) that makes `details` true. */
+export function neonEventPatch(details, neonEvent) {
+  const patch = {};
+  for (const d of details) patch[d.field] = d.local;
+  // A one-day Neon event stays one day when its date moves; a multi-day one keeps its end date.
+  if (patch.date && (!neonEvent.endDate || neonEvent.endDate === neonEvent.date)) patch.endDate = patch.date;
+  return patch;
+}
+
+/** Plain-language reason for a failed write, from the Worker's error message. */
+export function friendlyNeonReason(message) {
+  const m = String(message || '');
+  if (/14014|coupon code/i.test(m)) {
+    return 'The OSG Website rejects updates to registrations made through the online form (it validates their empty coupon code).';
+  }
+  if (/403|turned off/i.test(m)) return 'Sending to the OSG Website is turned off on this site.';
+  if (/429/.test(m)) return 'The OSG Website is busy. Try again in a minute.';
+  const text = m.replace(/^Neon One \d+:\s*/, '');
+  return text.length > 140 ? `${text.slice(0, 140)}…` : text || 'Unknown error.';
 }

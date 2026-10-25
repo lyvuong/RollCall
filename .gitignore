@@ -6,3 +6,4 @@ dist
 .emulator-data
 data/
 .dev.vars
+.dev.vars.*
