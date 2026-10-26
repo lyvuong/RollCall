@@ -20,6 +20,7 @@ import { neonApi } from './lib/neonApi.js';
 import { aboutView } from './views/about.js';
 import { reportView } from './views/report.js';
 import { photosView } from './views/photos.js';
+import { pollView } from './views/poll.js';
 
 applyTheme();
 
@@ -321,6 +322,8 @@ function route() {
     cleanup = eventView(view, ctx, null);
   } else if ((m = hash.match(/^\/event\/([^/]+)\/photos$/))) {
     cleanup = photosView(view, ctx, m[1]);
+  } else if ((m = hash.match(/^\/event\/([^/]+)\/poll$/))) {
+    cleanup = pollView(view, ctx, m[1]);
   } else if ((m = hash.match(/^\/event\/([^/]+)\/people$/))) {
     cleanup = participantsView(view, ctx, m[1]);
   } else if ((m = hash.match(/^\/event\/([^/]+)$/))) {

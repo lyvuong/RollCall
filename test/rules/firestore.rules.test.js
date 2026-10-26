@@ -242,3 +242,33 @@ describe('event photos', () => {
     await assertFails(setDoc(doc(db, 'events', 'e1', 'photos', 'p2'), meta('member1', { url: 'http://x' })));
   });
 });
+
+describe('reaction poll', () => {
+  const reaction = (uid, extra = {}) => ({ up: 1, mid: 0, down: 0, source: 'tap', createdBy: uid, createdAt: serverTimestamp(), ...extra });
+
+  it('members add, read and delete reactions', async () => {
+    const db = env.authenticatedContext('member1').firestore();
+    const ref = doc(db, 'events', 'e1', 'reactions', 'r1');
+    await assertSucceeds(setDoc(ref, reaction('member1')));
+    await assertSucceeds(setDoc(doc(db, 'events', 'e1', 'reactions', 'r2'), reaction('member1', { source: 'photo', photoId: 'abc', up: 4, mid: 2, down: 1 })));
+    await assertSucceeds(getDoc(ref));
+    await assertSucceeds(deleteDoc(ref));
+  });
+
+  it('rejects bad counts, sources, extra fields and spoofed creators', async () => {
+    const db = env.authenticatedContext('member1').firestore();
+    const at = (id) => doc(db, 'events', 'e1', 'reactions', id);
+    await assertFails(setDoc(at('a'), reaction('member1', { up: -1 })));
+    await assertFails(setDoc(at('b'), reaction('member1', { up: 501 })));
+    await assertFails(setDoc(at('c'), reaction('member1', { mid: 1.5 })));
+    await assertFails(setDoc(at('d'), reaction('member1', { source: 'bot' })));
+    await assertFails(setDoc(at('e'), reaction('member1', { note: 'hi' })));
+    await assertFails(setDoc(at('f'), reaction('someone-else')));
+  });
+
+  it('non-members are denied', async () => {
+    const db = env.authenticatedContext('stranger').firestore();
+    await assertFails(setDoc(doc(db, 'events', 'e1', 'reactions', 'r1'), reaction('stranger')));
+    await assertFails(getDocs(collection(db, 'events', 'e1', 'reactions')));
+  });
+});
