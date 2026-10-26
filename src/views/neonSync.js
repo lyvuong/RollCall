@@ -75,6 +75,7 @@ export function mountNeonSync(host, { getEvent, getLocationName, onSnapshot }) {
     if (dlg && state === 'ok' && afterSync) {
       // Opened by review() and now in sync (for instance after "Check again"): carry on to where the user was headed.
       const next = afterSync;
+      afterSync = null;
       dlg.close();
       return next();
     }
@@ -100,9 +101,11 @@ export function mountNeonSync(host, { getEvent, getLocationName, onSnapshot }) {
     dlg = document.createElement('dialog');
     dlg.className = 'sync-dlg';
     dlg.addEventListener('close', () => {
+      const leave = afterSync; // still set only when the dialog was dismissed rather than synced
       afterSync = null;
       dlg.remove();
       dlg = null;
+      leave?.();
     });
     document.body.append(dlg);
     renderDialog();
@@ -148,14 +151,16 @@ export function mountNeonSync(host, { getEvent, getLocationName, onSnapshot }) {
         ${body}
         <div class="actions">
           <button class="btn ghost" value="cancel">Close</button>
-          <button class="btn" type="button" id="recheck" ${sending ? 'disabled' : ''}>${icon('sync')} Check again</button>
+          ${writable ? `<button class="btn" type="button" id="recheck" ${sending ? 'disabled' : ''}>${icon('sync')} Check again</button>` : ''}
           ${plan && !plan.inSync && writable ? `<button class="btn primary" type="button" id="send" ${sending ? 'disabled' : ''}>${icon('send')} ${sending ? 'Sending…' : `Send ${plan.count} change${plan.count === 1 ? '' : 's'}`}</button>` : ''}
         </div>
       </form>`;
-    dlg.querySelector('#recheck').onclick = () => {
-      forgetNeonCache();
-      check();
-    };
+    const recheck = dlg.querySelector('#recheck');
+    if (recheck)
+      recheck.onclick = () => {
+        forgetNeonCache();
+        check();
+      };
     const send = dlg.querySelector('#send');
     if (send) send.onclick = doSend;
   }
@@ -176,6 +181,7 @@ export function mountNeonSync(host, { getEvent, getLocationName, onSnapshot }) {
     await check();
     if (dlg && plan?.inSync) {
       const next = afterSync;
+      afterSync = null;
       dlg.close();
       next?.();
     } else renderDialog();
@@ -183,7 +189,7 @@ export function mountNeonSync(host, { getEvent, getLocationName, onSnapshot }) {
 
   /**
    * Check the OSG Website right now and, when the event differs, open the send dialog. Resolves true when it opened
-   * (the caller stays put); onSynced runs if the user then sends and the event ends up in sync. False when the event is
+   * (the caller stays put); onSynced runs when the user then sends and the event ends up in sync, or closes the dialog. False when the event is
    * not linked, in sync, or the OSG Website could not be reached.
    */
   async function review(onSynced) {
