@@ -125,16 +125,26 @@ const normalizeAttendee = (a) => ({
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/** Sandbox orgs are named so. */
+export const isSandbox = (env) => /sandbox/i.test(env.NEON_ORG_ID || '');
+
+/**
+ * A switch left unset follows the org (on for a sandbox, off for a live org); "1" (or true/yes/on) turns it on and "0"
+ * (or false/no/off) turns it off anywhere, in any letter case, so a sandbox can be run with it off (for instance in .dev.vars) to see what a live site does.
+ */
+const flag = (value, env) => {
+  const v = String(value ?? '').trim().toLowerCase();
+  return ['1', 'true', 'yes', 'on'].includes(v) ? true : ['0', 'false', 'no', 'off'].includes(v) ? false : isSandbox(env);
+};
+
 /**
  * Whether the app may change its own (Firestore) records on its own when an event is opened: bring in check-ins made on the
- * OSG Website, mark the rest Missing, add registered names, drop duplicate roll entries. On for a sandbox org; on a live org
- * only when NEON_AUTO_RECONCILE=1, so production data is never rewritten until that is chosen.
+ * OSG Website, mark the rest Missing, add registered names, drop duplicate roll entries. Follows NEON_AUTO_RECONCILE.
  */
-export const autoReconcile = (env) => isSandbox(env) || env.NEON_AUTO_RECONCILE === '1';
+export const autoReconcile = (env) => flag(env.NEON_AUTO_RECONCILE, env);
 
-/** Writes are allowed on a sandbox org, or anywhere NEON_ALLOW_WRITES=1. */
-export const isSandbox = (env) => /sandbox/i.test(env.NEON_ORG_ID || '');
-export const canWrite = (env) => isSandbox(env) || env.NEON_ALLOW_WRITES === '1';
+/** Whether the app may send changes to Neon. Follows NEON_ALLOW_WRITES. */
+export const canWrite = (env) => flag(env.NEON_ALLOW_WRITES, env);
 
 /** "17:30" -> "05:30 PM" (the only time format Neon accepts when writing). */
 export function toNeonTime(hm24) {

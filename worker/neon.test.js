@@ -55,6 +55,17 @@ describe('neon info', () => {
   it('allows writes on a live org only when NEON_ALLOW_WRITES=1', async () => {
     expect((await (await call('/api/neon/info', {}, { ...env, NEON_ALLOW_WRITES: '1' })).json()).canWrite).toBe(true);
   });
+
+  it('reads FALSE and TRUE like 0 and 1', async () => {
+    const sandbox = { ...env, NEON_ORG_ID: 'mysandbox' };
+    expect((await (await call('/api/neon/info', {}, { ...sandbox, NEON_ALLOW_WRITES: 'FALSE' })).json()).canWrite).toBe(false);
+    expect((await (await call('/api/neon/info', {}, { ...env, NEON_ALLOW_WRITES: 'TRUE' })).json()).canWrite).toBe(true);
+  });
+
+  it('lets NEON_ALLOW_WRITES=0 and NEON_AUTO_RECONCILE=0 turn things off for a sandbox org', async () => {
+    const info = await (await call('/api/neon/info', {}, { ...env, NEON_ORG_ID: 'mysandbox', NEON_ALLOW_WRITES: '0', NEON_AUTO_RECONCILE: '0' })).json();
+    expect(info).toMatchObject({ sandbox: true, canWrite: false, autoReconcile: false });
+  });
 });
 
 describe('neon proxy auth', () => {

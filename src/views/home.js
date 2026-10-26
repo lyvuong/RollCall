@@ -1,5 +1,5 @@
 import { watchEvents, watchLocations, watchAllPhotos, watchRoster, loadExisting, newId, commitOps } from '../data.js';
-import { fetchNeonEvents, readNeonCache, fetchRegistrantsFor } from '../lib/neonApi.js';
+import { fetchNeonEvents, readNeonCache, fetchRegistrantsFor, neonInfo } from '../lib/neonApi.js';
 import { neonOnlyEvents, planNeonEvents, neonSyncPlan, staleRegistrantEvents } from '../lib/neon.js';
 import { similarNeonEvents } from '../lib/neonMerge.js';
 import { openMergeDialog } from './neonMerge.js';
@@ -288,7 +288,7 @@ export function homeView(root, _ctx) {
           <span class="badges">
             ${e.duplicateOf ? `<a class="badge unsynced" href="#/event/${esc(e.duplicateOf)}" title="Duplicate: its roll was moved to the original event. Tap to open the original. You can delete this one." aria-label="${esc(e.name)} is a duplicate. Open the original.">${icon('copy')}<span class="wide">Duplicate</span></a>` : ''}
             ${osgTwin(e) ? `<button type="button" class="badge unsynced merge-hint" data-merge="${esc(e.id)}" title="This may already be on the OSG Website. Tap to find it and merge." aria-label="${esc(e.name)} may already be on the OSG Website. Tap to merge.">${icon('swap')}<span class="wide">On OSG?</span></button>` : ''}
-            ${unsyncedCount(e) ? `<span class="badge unsynced outsync" title="${unsyncedCount(e)} difference${unsyncedCount(e) === 1 ? '' : 's'} from the OSG Website. Open the event to review and send.">${icon('alert')}<span class="wide">Out of sync</span></span>` : ''}
+            ${unsyncedCount(e) ? `<button type="button" class="badge unsynced outsync" data-outsync="${esc(e.id)}" title="${unsyncedCount(e)} difference${unsyncedCount(e) === 1 ? '' : 's'} from the OSG Website. Tap for details." aria-label="${esc(e.name)} is out of sync with the OSG Website. Tap for details.">${icon('alert')}<span class="wide">Out of sync</span></button>` : ''}
             ${e.neonEventId ? `<span class="badge neon done" title="Imported from the OSG Website">${icon('check')}<span class="wide">OSG</span></span>` : ''}
             <span class="badge ${esc(e.format)}" title="${f.tip}">${icon(f.icon)}<span class="wide">${f.label}</span></span>
           </span>
@@ -424,6 +424,29 @@ export function homeView(root, _ctx) {
     loadNeon();
   }
 
+  /** Say what "Out of sync" means for this event, and whether the differences can be sent from here. */
+  async function explainOutOfSync(e) {
+    if (!e) return;
+    const n = unsyncedCount(e);
+    const info = await neonInfo().catch(() => null);
+    const dlg = document.createElement('dialog');
+    dlg.className = 'sync-dlg';
+    dlg.innerHTML = `
+      <form method="dialog" class="sync-body">
+        <h2>${icon('alert')} ${esc(e.name)}</h2>
+        <p>${n} difference${n === 1 ? '' : 's'} between RollCall and the OSG Website. RollCall is the source, so the OSG Website is the one that is behind.</p>
+        ${info?.canWrite === false ? `<p class="notice warn">${icon('alert')} <span><b>Sending is turned off.</b> Your changes are saved in RollCall, but they can't be sent to the OSG Website from here yet: sending stays off until Neon, the company behind the OSG Website, fixes a bug in its API (the discountCoupon error when registering people). There is nothing you need to do.</span></p>` : '<p class="muted">Open the event to see what would change and send it.</p>'}
+        <div class="actions">
+          <button class="btn ghost" value="cancel">Close</button>
+          <a class="btn primary" href="#/event/${esc(e.id)}">Open event</a>
+        </div>
+      </form>`;
+    dlg.addEventListener('close', () => dlg.remove());
+    dlg.querySelector('a').onclick = () => dlg.close();
+    document.body.append(dlg);
+    dlg.showModal();
+  }
+
   $('#list', root).onclick = (ev) => {
     const dayBtn = ev.target.closest('.day-toggle');
     if (dayBtn) {
@@ -437,6 +460,8 @@ export function homeView(root, _ctx) {
       const e = events.find((x) => x.id === mrg.dataset.merge);
       return e && openMergeDialog({ event: e, locationName: e.locationId ? locations[e.locationId] || '' : '' });
     }
+    const out = ev.target.closest('.outsync');
+    if (out) return explainOutOfSync(events.find((x) => x.id === out.dataset.outsync));
     const who = ev.target.closest('[data-who]');
     if (who) {
       const id = who.closest('[data-id]').dataset.id;
