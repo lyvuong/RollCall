@@ -658,8 +658,8 @@ button.badge { appearance: none; border: 0; font: inherit; cursor: pointer; }
 .tapmode { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; padding: 24px; background: var(--bg); user-select: none; -webkit-user-select: none; touch-action: manipulation; }
 .tapmode[hidden] { display: none; }
 .tap-q { margin: 0; text-align: center; font-size: 1.8rem; }
-.tap-btns { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; width: 100%; }
-.tap-btn { flex: 1 1 96px; max-width: 200px; min-height: 120px; border: 0; border-radius: 24px; color: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.tap-btns { display: flex; justify-content: center; gap: 12px; width: 100%; }
+.tap-btn { flex: 1 1 0; min-width: 0; max-width: 200px; min-height: 120px; border: 0; border-radius: 24px; color: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .tap-btn .i { width: 56px; height: 56px; }
 .tap-btn:active { transform: scale(.95); }
 .tap-btn.up { background: #2e9e5b; }
