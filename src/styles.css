@@ -614,6 +614,8 @@ button.badge.neon-import:disabled { opacity: .6; cursor: wait; }
 .sync-tbl td { padding: 4px 0; }
 .sync-tbl .old { color: var(--muted); }
 .sync-body .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+/* On phones the global ".actions .btn { flex: 1 }" squeezed the labels into one letter per line; let the buttons wrap instead. */
+.sync-body .actions .btn { flex: 1 1 auto; white-space: nowrap; }
 
 /* ---------- merge with the OSG Website ---------- */
 button.badge { appearance: none; border: 0; font: inherit; cursor: pointer; }
