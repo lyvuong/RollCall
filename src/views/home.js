@@ -443,7 +443,7 @@ export function homeView(root, _ctx) {
       <form method="dialog" class="sync-body">
         <h2>${icon('alert')} ${esc(e.name)}</h2>
         <p>${n} difference${n === 1 ? '' : 's'} between RollCall and the OSG Website. RollCall is the source, so the OSG Website is the one that is behind.</p>
-        ${info?.canWrite === false ? `<p class="notice warn">${icon('alert')} <span><b>Sending is turned off.</b> Your changes are saved in RollCall, but they can't be sent to the OSG Website from here yet: sending stays off until Neon, the company behind the OSG Website, fixes a bug in its API (the discountCoupon error when registering people). There is nothing you need to do.</span></p>` : '<p class="muted">Open the event to see what would change and send it.</p>'}
+        ${info?.canWrite === false ? `<p class="notice warn">${icon('alert')} <span><b>Sending is turned off.</b> Your changes are saved in RollCall, but they can't be sent to the OSG Website from here for now. There is nothing you need to do.</span></p>` : '<p class="muted">Open the event to see what would change and send it.</p>'}
         <div class="actions">
           <button class="btn ghost" value="cancel">Close</button>
           <a class="btn primary" href="#/event/${esc(e.id)}">Open event</a>
