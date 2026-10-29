@@ -105,6 +105,11 @@ service cloud.firestore {
       allow read: if isMember();
     }
 
+    // Collection-group reads of reactions (poll results on the event list).
+    match /{path=**}/reactions/{rid} {
+      allow read: if isMember();
+    }
+
     match /events/{id} {
       allow read: if isMember();
       allow create, update: if isMember()
@@ -136,6 +141,20 @@ service cloud.firestore {
           // Firestore TTL policy on `expireAt` deletes the doc; the client sets it ~30 days out.
           && request.resource.data.expireAt is timestamp
           && request.resource.data.expireAt <= request.time + duration.value(31, 'd');
+        allow delete: if isMember();
+      }
+
+      // Anonymous reaction poll: one doc per tap (1/0/0) or per photo entry; the app sums them.
+      match /reactions/{rid} {
+        allow read: if isMember();
+        allow create: if isMember()
+          && request.resource.data.keys().hasOnly(['up', 'mid', 'down', 'source', 'photoId', 'createdBy', 'createdAt'])
+          && request.resource.data.up is int && request.resource.data.up >= 0 && request.resource.data.up <= 500
+          && request.resource.data.mid is int && request.resource.data.mid >= 0 && request.resource.data.mid <= 500
+          && request.resource.data.down is int && request.resource.data.down >= 0 && request.resource.data.down <= 500
+          && request.resource.data.source in ['photo', 'tap']
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt == request.time;
         allow delete: if isMember();
       }
     }

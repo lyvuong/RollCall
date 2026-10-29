@@ -7,6 +7,7 @@ import {
   deleteEvent,
   fetchRecentEvents,
   watchPeople,
+  watchReactions,
 } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { mountNeonSync } from './neonSync.js';
@@ -14,6 +15,7 @@ import { renderMergeSlot } from './neonMerge.js';
 import { mountPresence } from '../lib/presence.js';
 import { makeReconciler } from '../lib/reconcile.js';
 import { icon } from '../lib/icons.js';
+import { tally, summaryLine } from '../lib/poll.js';
 import { matchLocation } from '../lib/locations.js';
 import { ymd, eventHours, countRoles, totalVolunteerHours, personKind, roleOf, needsVolunteers, formatHours, formatTime } from '../lib/time.js';
 
@@ -308,6 +310,7 @@ export function eventView(root, ctx, eventId) {
     const el = $('#summary', root);
     if (!el || !event) return;
     const hours = eventHours(event.startTime, event.endTime);
+    const pollLine = summaryLine(tally(reactions));
     const { volunteers, participants } = countRoles(event.attendees);
     el.innerHTML = `
       ${
@@ -321,7 +324,8 @@ export function eventView(root, ctx, eventId) {
         <div class="stat" title="Participants">${icon('users')}<span>${participants}</span><span class="wide">participant${participants === 1 ? '' : 's'}</span></div>
         <div class="stat total" title="Total volunteer hours">${icon('hourglass')}<span>${formatHours(totalVolunteerHours(event))}</span><span class="wide">hrs total</span></div>
       </div>
-      <a class="btn primary block" href="#/event/${esc(eventId)}/people">${icon('userEdit')} Participants (${volunteers + participants})</a>`;
+      <a class="btn primary block" href="#/event/${esc(eventId)}/people">${icon('userEdit')} Participants (${volunteers + participants})</a>
+      <a class="btn block poll-link" href="#/event/${esc(eventId)}/poll">${icon('chart')} Reactions poll${pollLine ? ` <span class="poll-line">${esc(pollLine)}</span>` : ''}</a>`;
   }
 
   /* ----- subscriptions ----- */
@@ -331,6 +335,7 @@ export function eventView(root, ctx, eventId) {
 
   let people = [];
   let peopleLoaded = false;
+  let reactions = [];
   // Check-ins made on the OSG Website become Here and join the roll, whichever page of the event is opened (see lib/reconcile.js).
   const reconcile = isNew ? null : makeReconciler({ eventId, getEvent: () => event, getPeople: () => ({ people, loaded: peopleLoaded }) });
   const sync = isNew
@@ -360,6 +365,12 @@ export function eventView(root, ctx, eventId) {
         people = rows;
         peopleLoaded = true;
         reconcile?.again();
+      }),
+    );
+    unsubs.push(
+      watchReactions(eventId, (rows) => {
+        reactions = rows;
+        renderSummary();
       }),
     );
     unsubs.push(

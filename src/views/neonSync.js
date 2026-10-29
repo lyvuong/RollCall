@@ -142,7 +142,7 @@ export function mountNeonSync(host, { getEvent, getLocationName, onSnapshot }) {
         ${here.length ? `<h3>Mark as here (${here.length})</h3><p>${names(here)}</p>` : ''}
         ${walk.length ? `<h3>Register on the OSG Website and mark as here (${walk.length})</h3><p>${names(walk)}</p><p class="muted tiny">Anyone without an OSG account goes in as a guest under your account.</p>` : ''}
         ${notHere.length ? `<h3>Mark as not here (${notHere.length})</h3><p>${names(notHere)}</p>` : ''}
-        ${writable ? '' : `<p class="notice warn">${icon('alert')} <span><b>Sending is turned off.</b> RollCall and the OSG Website currently differ, as listed above. Your changes are saved in RollCall, but they can't be sent to the OSG Website from here yet: sending stays off until Neon, the company behind the OSG Website, fixes a bug in its API (the discountCoupon error when registering people). There is nothing you need to do.</span></p>`}`;
+        ${writable ? '' : `<p class="notice warn">${icon('alert')} <span><b>Sending is turned off.</b> RollCall and the OSG Website currently differ, as listed above. Your changes are saved in RollCall, but they can't be sent to the OSG Website from here for now. There is nothing you need to do.</span></p>`}`;
     dlg.innerHTML = `
       <form method="dialog" class="sync-body">
         <h2>${icon('sync')} ${esc(e?.name || 'Event')}</h2>

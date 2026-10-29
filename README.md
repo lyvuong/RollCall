@@ -44,6 +44,7 @@ An installable, offline-capable PWA built for OSG staff.
 | **Roll call** | Record participants and volunteers per event. People are typed in once and saved for next time ("frequent flyers"), tagged OSG member or Community. |
 | **Volunteer hours** | Total hours = event hours × checked-in volunteers, with flags on events that still need volunteers identified. |
 | **Photos** | Attach photos to an event. Images are resized and re-encoded on the device (full and thumbnail), then stored in Cloudflare R2. |
+| **Reactions poll** | Anonymous thumbs up / sideways / down per event. Hand the phone over in full-screen tap mode. Results show on the event page; the Report page downloads a reactions CSV. |
 | **Reports and export** | Pick a date range and export events and attendees to CSV in a format that re-imports losslessly. |
 | **CSV import** | Bring in past events and people, including AMS exports, with a preview step before anything is written. |
 | **Saved Members review** | Admins can scan for look-alike names (typos, case, word order, extra middle names) and send them to the merge bar, and list people who never attended or haven't in 1, 2 or 3 years, then delete them in bulk. People on an upcoming event are never listed. |
@@ -253,7 +254,7 @@ src/
   main.js            app shell, sign-in gate, router
   data.js            Firestore access
   firebase.js        Firebase init (emulator aware)
-  views/             home, event, people, photos, report, settings, import, neon, about
+  views/             home, event, people, photos, poll, report, settings, import, neon, about
   lib/               time/hours, CSV, importer, exporter, photos, Neon mapper, theme, icons
 worker/              API: photos (R2), Neon One proxy, Firebase token verification
 functions/api/       Pages Function that mounts the Worker

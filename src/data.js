@@ -147,6 +147,41 @@ export function addPhotoDoc(eventId, photoId, { uploadedBy, uploadedByName, widt
 
 export const deletePhotoDoc = (eventId, photoId) => deleteDoc(doc(db, 'events', eventId, 'photos', photoId));
 
+/* ---------- reaction poll (anonymous thumbs; one doc per tap or per photo entry, summed on read) ---------- */
+
+/** Returns { id, done } so a tap never waits on the server (see createEvent). `photoId` links a photo entry to its picture. */
+export function addReaction(eventId, { up = 0, mid = 0, down = 0 }, source, uid, photoId = null) {
+  const ref = doc(collection(db, 'events', eventId, 'reactions'));
+  const data = { up, mid, down, source, createdBy: uid, createdAt: serverTimestamp() };
+  if (photoId) data.photoId = photoId;
+  return { id: ref.id, done: setDoc(ref, data) };
+}
+
+export const watchReactions = (eventId, cb) => watchCollection(collection(db, 'events', eventId, 'reactions'), cb);
+
+export const deleteReaction = (eventId, id) => deleteDoc(doc(db, 'events', eventId, 'reactions', id));
+
+/** Every reaction doc across all events, each with its `eventId` (for the Events list). */
+export function watchAllReactions(cb) {
+  return onSnapshot(
+    collectionGroup(db, 'reactions'),
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, eventId: d.ref.parent.parent.id, ...d.data() }))),
+    (err) => console.error('reactions snapshot error', err),
+  );
+}
+
+/** Reaction docs of the given events, grouped: { eventId: [doc, ...] }. */
+export async function fetchReactionsFor(eventIds) {
+  const out = {};
+  await Promise.all(
+    eventIds.map(async (id) => {
+      const snap = await getDocs(collection(db, 'events', id, 'reactions'));
+      if (!snap.empty) out[id] = snap.docs.map(withId);
+    }),
+  );
+  return out;
+}
+
 export async function fetchLocations() {
   const snap = await getDocs(collection(db, 'locations'));
   return Object.fromEntries(snap.docs.map((d) => [d.id, d.data().name]));

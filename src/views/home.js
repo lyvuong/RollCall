@@ -1,4 +1,4 @@
-import { watchEvents, watchLocations, watchAllPhotos, watchRoster, loadExisting, newId, commitOps } from '../data.js';
+import { watchEvents, watchLocations, watchAllPhotos, watchAllReactions, watchRoster, loadExisting, newId, commitOps } from '../data.js';
 import { fetchNeonEvents, readNeonCache, fetchRegistrantsFor, neonInfo } from '../lib/neonApi.js';
 import { neonOnlyEvents, planNeonEvents, neonSyncPlan, staleRegistrantEvents } from '../lib/neon.js';
 import { similarNeonEvents } from '../lib/neonMerge.js';
@@ -7,6 +7,7 @@ import { photoUrl } from '../lib/photos.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { rosterMap, fixedRole } from '../lib/roster.js';
 import { icon } from '../lib/icons.js';
+import { tally } from '../lib/poll.js';
 import {
   ymd,
   addDays,
@@ -79,6 +80,7 @@ export function homeView(root, _ctx) {
   let events = [];
   let locations = {};
   let photosByEvent = new Map(); // eventId -> photo metadata[]
+  let reactionsByEvent = new Map(); // eventId -> reaction docs[]
   let unsubEvents = () => {};
   let roster = new Map(); // lower-case name -> 'staff' | 'volunteer'
   let neonRaw = []; // last Neon result for the visible range (cached copy first, then fresh)
@@ -274,6 +276,7 @@ export function homeView(root, _ctx) {
 
   function card(e) {
     const photos = photosByEvent.get(e.id) || [];
+    const poll = tally(reactionsByEvent.get(e.id) || []);
     const { volunteers, participants } = countRoles(e.attendees);
     const loc = e.locationId ? locations[e.locationId] : '';
     const f = FORMAT[e.format] || FORMAT['in-person'];
@@ -303,6 +306,11 @@ export function homeView(root, _ctx) {
           ${pill(e, 'mem', participants, 'Participants', icon('users'), `participant${participants === 1 ? '' : 's'}`)}
           <span class="pill hrs" title="Total volunteer hours">${icon('hourglass')}<b>${formatHours(totalVolunteerHours(e))}</b> hrs</span>
           ${needsVolunteers(e) ? `<span class="pill warn" title="Recorded hours, but no volunteers identified">${icon('alert')}<span class="wide">Assign volunteers</span></span>` : ''}
+          ${
+            poll.total
+              ? `<a class="pill poll" href="#/event/${esc(e.id)}/poll" title="Reactions: ${poll.up} up, ${poll.mid} sideways, ${poll.down} down" aria-label="Reactions poll of ${esc(e.name)}: ${poll.up} up, ${poll.mid} sideways, ${poll.down} down">${icon('thumbsUp')}<b>${poll.up}</b>${icon('thumbsSide')}<b>${poll.mid}</b>${icon('thumbsDown')}<b>${poll.down}</b></a>`
+              : ''
+          }
           ${
             e.date <= ymd()
               ? `<a class="ibadge photos${photos.length ? ' has-count' : ''}" href="#/event/${esc(e.id)}/photos" aria-label="${photos.length} photo${photos.length === 1 ? '' : 's'} of ${esc(e.name)}" title="Photos">${icon('camera')}${photos.length ? `<b>${photos.length}</b>` : ''}</a><a class="ibadge people" href="#/event/${esc(e.id)}/people" aria-label="Update participants of ${esc(e.name)}" title="Update participants">${icon('userEdit')}</a>`
@@ -435,7 +443,7 @@ export function homeView(root, _ctx) {
       <form method="dialog" class="sync-body">
         <h2>${icon('alert')} ${esc(e.name)}</h2>
         <p>${n} difference${n === 1 ? '' : 's'} between RollCall and the OSG Website. RollCall is the source, so the OSG Website is the one that is behind.</p>
-        ${info?.canWrite === false ? `<p class="notice warn">${icon('alert')} <span><b>Sending is turned off.</b> Your changes are saved in RollCall, but they can't be sent to the OSG Website from here yet: sending stays off until Neon, the company behind the OSG Website, fixes a bug in its API (the discountCoupon error when registering people). There is nothing you need to do.</span></p>` : '<p class="muted">Open the event to see what would change and send it.</p>'}
+        ${info?.canWrite === false ? `<p class="notice warn">${icon('alert')} <span><b>Sending is turned off.</b> Your changes are saved in RollCall, but they can't be sent to the OSG Website from here for now. There is nothing you need to do.</span></p>` : '<p class="muted">Open the event to see what would change and send it.</p>'}
         <div class="actions">
           <button class="btn ghost" value="cancel">Close</button>
           <a class="btn primary" href="#/event/${esc(e.id)}">Open event</a>
@@ -534,6 +542,14 @@ export function homeView(root, _ctx) {
     }
     renderList();
   });
+  const unsubReactions = watchAllReactions((rows) => {
+    reactionsByEvent = new Map();
+    for (const r of rows) {
+      if (!reactionsByEvent.has(r.eventId)) reactionsByEvent.set(r.eventId, []);
+      reactionsByEvent.get(r.eventId).push(r);
+    }
+    renderList();
+  });
   subscribe();
 
   return () => {
@@ -541,6 +557,7 @@ export function homeView(root, _ctx) {
     unsubEvents();
     unsubLoc();
     unsubPhotos();
+    unsubReactions();
     unsubRoster();
   };
 }

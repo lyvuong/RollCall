@@ -1,8 +1,10 @@
-import { fetchEventsInRange, fetchLocations } from '../data.js';
+import { fetchEventsInRange, fetchLocations, fetchReactionsFor } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { ymd } from '../lib/time.js';
 import { eventsToCsv } from '../lib/exporter.js';
+import { toCSV } from '../lib/csv.js';
+import { pollRows } from '../lib/poll.js';
 import { PRESETS } from './home.js';
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -32,12 +34,14 @@ export function reportView(root, _ctx) {
       <p id="count" class="muted" aria-live="polite"></p>
       <div class="actions">
         <button class="btn primary" id="go" type="button" disabled>${icon('download')} Download CSV</button>
+        <button class="btn" id="goPoll" type="button" disabled>${icon('chart')} Reactions CSV</button>
       </div>
     </section>`;
 
   const from = $('#from', root);
   const to = $('#to', root);
   const go = $('#go', root);
+  const goPoll = $('#goPoll', root);
   const count = $('#count', root);
 
   async function refresh() {
@@ -52,6 +56,7 @@ export function reportView(root, _ctx) {
       .join('');
     events = [];
     go.disabled = true;
+    goPoll.disabled = true;
     if (!range.from || !range.to || range.from > range.to) {
       count.textContent = 'Pick a valid range (From must not be after To).';
       return;
@@ -63,7 +68,7 @@ export function reportView(root, _ctx) {
       if (mine !== seq) return;
       events = rows;
       count.textContent = `${rows.length} event${rows.length === 1 ? '' : 's'} in this range.`;
-      go.disabled = !rows.length;
+      go.disabled = goPoll.disabled = !rows.length;
     } catch {
       if (mine === seq) count.textContent = 'Could not load events. Are you online?';
     }
@@ -94,6 +99,27 @@ export function reportView(root, _ctx) {
       toast('Export failed. Try again.');
     }
     go.disabled = !events.length;
+  };
+
+  goPoll.onclick = async () => {
+    goPoll.disabled = true;
+    try {
+      const rows = pollRows(events, await fetchReactionsFor(events.map((e) => e.id)));
+      if (rows.length < 2) {
+        toast('No reactions were recorded in this range.');
+      } else {
+        const blob = new Blob(['﻿' + toCSV(rows)], { type: 'text/csv;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `rollcall-reactions-${range.from}_to_${range.to}.csv`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        toast(`Exported reactions for ${rows.length - 1} event${rows.length === 2 ? '' : 's'}`);
+      }
+    } catch {
+      toast('Export failed. Try again.');
+    }
+    goPoll.disabled = !events.length;
   };
 
   refresh();
