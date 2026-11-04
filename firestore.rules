@@ -115,7 +115,10 @@ service cloud.firestore {
       allow create, update: if isMember()
         && request.resource.data.name is string
         && request.resource.data.format in ['virtual', 'in-person', 'both']
-        && request.resource.data.endTime > request.resource.data.startTime;
+        && request.resource.data.endTime > request.resource.data.startTime
+        // Optional reaction-poll question, set on the poll page before the first vote.
+        && (!('pollQuestion' in request.resource.data)
+            || (request.resource.data.pollQuestion is string && request.resource.data.pollQuestion.size() <= 120));
       allow delete: if isMember();
 
       // Who has the event open right now: each member writes only their own marker, refreshed while the page is open.

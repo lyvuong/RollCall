@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { clampCount, cleanCounts, tally, percent, summaryLine, pollRows, MAX_COUNT } from './poll.js';
+import { clampCount, cleanCounts, tally, percent, summaryLine, pollRows, MAX_COUNT, DEFAULT_QUESTION, MAX_QUESTION, cleanQuestion, questionOf } from './poll.js';
 
 describe('clampCount', () => {
   it('keeps whole numbers in range', () => {
@@ -52,6 +52,23 @@ describe('pollRows', () => {
     const events = [{ id: 'a', name: 'A', date: '2026-01-01' }, { id: 'b', name: 'B', date: '2026-01-02' }];
     const rows = pollRows(events, { b: [{ up: 1, mid: 1, down: 0 }] });
     expect(rows).toHaveLength(2);
-    expect(rows[1]).toEqual(['B', '2026-01-02', 1, 1, 0, 2, 1]);
+    expect(rows[1]).toEqual(['B', '2026-01-02', DEFAULT_QUESTION, 1, 1, 0, 2, 1]);
+  });
+  it('includes the event\'s saved question', () => {
+    const rows = pollRows([{ id: 'a', name: 'A', date: '2026-01-01', pollQuestion: 'Was the talk useful?' }], { a: [{ up: 1 }] });
+    expect(rows[1][2]).toBe('Was the talk useful?');
+  });
+});
+
+describe('cleanQuestion', () => {
+  it('trims, collapses spaces and caps the length', () => {
+    expect(cleanQuestion('  Was   it good?  ')).toBe('Was it good?');
+    expect(cleanQuestion('x'.repeat(500))).toHaveLength(MAX_QUESTION);
+  });
+  it('falls back to the default when blank or missing', () => {
+    expect(cleanQuestion('   ')).toBe(DEFAULT_QUESTION);
+    expect(questionOf({})).toBe(DEFAULT_QUESTION);
+    expect(questionOf(null)).toBe(DEFAULT_QUESTION);
+    expect(questionOf({ pollQuestion: 'Rate the food' })).toBe('Rate the food');
   });
 });
