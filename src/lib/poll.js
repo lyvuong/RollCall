@@ -7,6 +7,17 @@ export const REACTIONS = [
 ];
 
 export const MAX_COUNT = 500;
+export const DEFAULT_QUESTION = "How was today's event?";
+export const MAX_QUESTION = 120;
+
+/** Trimmed, single-spaced question capped at MAX_QUESTION; blank becomes the default. */
+export function cleanQuestion(q) {
+  const s = String(q ?? '').trim().replace(/\s+/g, ' ').slice(0, MAX_QUESTION);
+  return s || DEFAULT_QUESTION;
+}
+
+/** The question asked for this event (its saved one, else the default). */
+export const questionOf = (event) => cleanQuestion(event?.pollQuestion);
 
 /** A whole number between 0 and MAX_COUNT; anything else becomes 0. */
 export function clampCount(n) {
@@ -36,11 +47,11 @@ export function summaryLine(t) {
 
 /** CSV rows (header first) for the Report: one row per event that has reactions. */
 export function pollRows(events, reactionsByEvent) {
-  const rows = [['Event', 'Date', 'Thumbs up', 'Thumbs sideways', 'Thumbs down', 'Total', 'Entries']];
+  const rows = [['Event', 'Date', 'Question', 'Thumbs up', 'Thumbs sideways', 'Thumbs down', 'Total', 'Entries']];
   for (const e of events) {
     const t = tally(reactionsByEvent[e.id] || []);
     if (!t.total) continue;
-    rows.push([e.name, e.date, t.up, t.mid, t.down, t.total, t.entries]);
+    rows.push([e.name, e.date, questionOf(e), t.up, t.mid, t.down, t.total, t.entries]);
   }
   return rows;
 }

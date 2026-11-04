@@ -1,8 +1,8 @@
-import { watchEvent, watchReactions, addReaction, deleteReaction } from '../data.js';
+import { watchEvent, watchReactions, addReaction, deleteReaction, updateEvent } from '../data.js';
 import { esc, $, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { formatDay, countRoles } from '../lib/time.js';
-import { REACTIONS, tally, percent } from '../lib/poll.js';
+import { REACTIONS, tally, percent, questionOf, cleanQuestion, MAX_QUESTION } from '../lib/poll.js';
 
 const ICON = { up: 'thumbsUp', mid: 'thumbsSide', down: 'thumbsDown' };
 const HOLD_MS = 1500;
@@ -23,6 +23,7 @@ export function pollView(root, ctx, eventId) {
     <h1 style="margin-bottom:4px">${icon('chart', 'lg')} Reactions poll</h1>
     <p id="sub" class="muted" style="margin-top:0"></p>
     <section class="card" id="start">
+      <div id="qBox"></div>
       <p class="muted">Anonymous: no names are kept. Count how attendees felt about the event.</p>
       <button type="button" class="btn primary block" id="tapBtn">${icon('thumbsUp')} Start tap mode (hand over the phone)</button>
     </section>
@@ -35,12 +36,46 @@ export function pollView(root, ctx, eventId) {
     $('#sub', root).textContent = event ? `${event.name} · ${formatDay(event.date)}` : '';
   }
 
+  /** The question: editable until the first response arrives, then shown as fixed text so results stay tied to it. */
+  function renderQuestion() {
+    const box = $('#qBox', root);
+    const locked = tally(reactions).total > 0;
+    const input = $('#qInput', box);
+    if (locked) {
+      if (!input && box.dataset.locked) {
+        $('#qText', box).textContent = questionOf(event);
+        return;
+      }
+      box.dataset.locked = '1';
+      box.innerHTML = `<h3 style="margin:0 0 4px">Question</h3>
+        <p id="qText" style="margin:0 0 4px;font-weight:600"></p>
+        <p class="muted" style="margin-top:0">Fixed because responses are already in. Delete them to change it.</p>`;
+      $('#qText', box).textContent = questionOf(event);
+      return;
+    }
+    if (input) {
+      if (document.activeElement !== input) input.value = questionOf(event);
+      return;
+    }
+    delete box.dataset.locked;
+    box.innerHTML = `<label class="field" style="margin-bottom:12px"><span class="lbl">Question</span>
+      <input id="qInput" class="input" type="text" maxlength="${MAX_QUESTION}" /></label>`;
+    const q = $('#qInput', box);
+    q.value = questionOf(event);
+    q.onchange = () => {
+      const clean = cleanQuestion(q.value);
+      q.value = clean;
+      updateEvent(eventId, { pollQuestion: clean }).catch(() => toast('Could not save the question. Try again.'));
+    };
+  }
+
   function renderResults() {
     const t = tally(reactions);
     const taps = [...reactions].sort((a, b) => (a.createdAt?.toMillis?.() ?? Infinity) - (b.createdAt?.toMillis?.() ?? Infinity));
     const tapTotal = tally(taps);
     $('#results', root).innerHTML = t.total
       ? `<h2>Results · ${t.total} response${t.total === 1 ? '' : 's'}</h2>
+        <p class="muted" style="margin-top:0">${esc(questionOf(event))}</p>
         ${REACTIONS.map(
           (r) => `<div class="poll-row"><span class="poll-ic">${icon(ICON[r.key])}</span>
             <span class="poll-bar"><span style="width:${percent(t[r.key], t.total)}%"></span></span>
@@ -89,7 +124,7 @@ export function pollView(root, ctx, eventId) {
           ? `<button type="button" class="tap-exit" id="tapExit" aria-label="Hold to finish"></button>
             <div class="tap-thanks">Everyone has responded. Thank you!</div>`
           : `<button type="button" class="tap-exit" id="tapExit" aria-label="Hold to finish"></button>
-          <h2 class="tap-q">How was today's event?</h2>
+          <h2 class="tap-q">${esc(questionOf(event))}</h2>
           <div class="tap-btns">
             ${REACTIONS.map((r) => `<button type="button" class="tap-btn ${r.key}" data-k="${r.key}" aria-label="${esc(r.label)}">${icon(ICON[r.key])}</button>`).join('')}
           </div>`;
@@ -147,9 +182,12 @@ export function pollView(root, ctx, eventId) {
     watchEvent(eventId, (e) => {
       event = e;
       renderHeader();
+      renderQuestion();
+      renderResults();
     }),
     watchReactions(eventId, (rows) => {
       reactions = rows;
+      renderQuestion();
       renderResults();
       refreshTap();
     }),

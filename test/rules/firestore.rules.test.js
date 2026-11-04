@@ -78,6 +78,14 @@ describe('data access', () => {
     await assertFails(setDoc(doc(db, 'events', 'e3'), { ...base, startTime: '10:00', endTime: '09:00' }));
   });
 
+  it('a poll question is optional text of at most 120 characters', async () => {
+    const db = env.authenticatedContext('member1').firestore();
+    const ev = doc(db, 'events', 'e1');
+    await assertSucceeds(updateDoc(ev, { pollQuestion: 'Was the talk useful?' }));
+    await assertFails(updateDoc(ev, { pollQuestion: 'x'.repeat(121) }));
+    await assertFails(updateDoc(ev, { pollQuestion: 42 }));
+  });
+
   it('members create and list invites; only admins delete them', async () => {
     const member = env.authenticatedContext('member1').firestore();
     const admin = env.authenticatedContext('admin1').firestore();
